@@ -5,7 +5,7 @@ import numpy as np
 import gym_so100
 
 env = gym.make(
-    "gym_so100/SO100TransferCube-v0",
+    "gym_so100/SO100TouchCube-v0",
     obs_type="so100_pixels_agent_pos", 
     observation_width=64,
     observation_height=48,

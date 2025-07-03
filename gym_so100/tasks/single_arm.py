@@ -11,19 +11,15 @@ from gym_so100.constants import (
 BOX_POSE = [None]  # to be changed from outside
 
 """
-Environment for simulated robot bi-manual manipulation, with joint position control
+Environment for simulated robot one arm manipulation, with joint position control
 Action space:      [left_arm_qpos (5),             # absolute joint position
-                    left_gripper_positions (1),    # normalized gripper position (0: close, 1: open)
+                    left_gripper_positions (1),    # absolute gripper position
                     
 
-Observation space: {"qpos": Concat[ left_arm_qpos (6),         # absolute joint position
-                                    left_gripper_position (1),  # normalized gripper position (0: close, 1: open)
-                                    right_arm_qpos (6),         # absolute joint position
-                                    right_gripper_qpos (1)]     # normalized gripper position (0: close, 1: open)
+Observation space: {"qpos": Concat[ left_arm_qpos (5),         # absolute joint position
+                                    left_gripper_position (1),  # absolute gripper position
                     "qvel": Concat[ left_arm_qvel (6),         # absolute joint velocity (rad)
-                                    left_gripper_velocity (1),  # normalized gripper velocity (pos: opening, neg: closing)
-                                    right_arm_qvel (6),         # absolute joint velocity (rad)
-                                    right_gripper_qvel (1)]     # normalized gripper velocity (pos: opening, neg: closing)
+                                    left_gripper_velocity (1),  # absolute gripper velocity (pos: opening, neg: closing)
                     "images": {"main": (480x640x3)}        # h, w, c, dtype='uint8'
 """
 
@@ -241,22 +237,16 @@ class SO100Task(base.Task):
     def get_qpos(physics):
         qpos_raw = physics.data.qpos.copy()
         left_qpos_raw = qpos_raw[:SO100Task.ARM_DOF + SO100Task.GRIPPER_DOF] 
-        # right_qpos_raw = qpos_raw[8:16]
         left_arm_qpos = left_qpos_raw[:SO100Task.ARM_DOF]
-        # right_arm_qpos = right_qpos_raw[:6]
         left_gripper_qpos = [left_qpos_raw[SO100Task.ARM_DOF]]
-        # right_gripper_qpos = [normalize_puppet_gripper_position(right_qpos_raw[6])]
         return np.concatenate([left_arm_qpos, left_gripper_qpos])
 
     @staticmethod
     def get_qvel(physics):
         qvel_raw = physics.data.qvel.copy()
         left_qvel_raw = qvel_raw[:SO100Task.ARM_DOF + SO100Task.GRIPPER_DOF]
-        # right_qvel_raw = qvel_raw[8:16]
         left_arm_qvel = left_qvel_raw[:SO100Task.ARM_DOF]
-        # right_arm_qvel = right_qvel_raw[:6]
         left_gripper_qvel = [left_qvel_raw[SO100Task.ARM_DOF]]
-        # right_gripper_qvel = [normalize_puppet_gripper_velocity(right_qvel_raw[6])]
         return np.concatenate([left_arm_qvel, left_gripper_qvel])
 
     @staticmethod
@@ -309,7 +299,7 @@ class SO100Task(base.Task):
         raise NotImplementedError
 
 
-class SO100TransferCubeTask(SO100Task):
+class SO100TouchCubeTask(SO100Task):
     """Actions are normalized to [-1, 1] range. Observations are not, to be used with VecNormalize"""
     def __init__(self, random=None, observation_width=640,
         observation_height=480):
@@ -404,17 +394,83 @@ class SO100TransferCubeTask(SO100Task):
         reward -= 0.2
         return reward
 
-        # if touch_gripper:
-        #     reward = max(reward, 0.60)
-        # if touch_gripper and (not touch_table):
-        #     reward = max(reward, 1.00)
-        # if cube_over_bin:
-        #     reward = max(reward, 1.50)
-        # if released:
-        #     reward = max(reward, 2.00)
-        #     # optional centring bonus
-        #     d_xy  = np.linalg.norm(cube_pos[:2] - self.bin_center[:2])
-        #     bonus = 0.5 * (1 - np.clip(d_xy / self.bin_radius, 0, 1))
-        #     reward += bonus
 
 
+
+class SO100TouchCubeSparseTask(SO100Task):
+    """Actions are normalized to [-1, 1] range. Observations are not, to be used with VecNormalize"""
+    def __init__(self, random=None, observation_width=640,
+        observation_height=480):
+        super().__init__(random=random, observation_width=observation_width,
+            observation_height=observation_height)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        """Sets the state of the environment at the start of each episode."""
+        # TODO Notice: this function does not randomize the env configuration. Instead, set BOX_POSE from outside
+        # reset qpos, control and box position
+        with physics.reset_context():
+            physics.named.data.qpos[:6] = SO100_START_ARM_POSE
+            np.copyto(physics.data.ctrl, SO100_START_ARM_POSE)
+            assert BOX_POSE[0] is not None
+            physics.named.data.qpos[-7:] = BOX_POSE[0]
+            # print(f"{BOX_POSE=}")
+        super().initialize_episode(physics)
+
+    @staticmethod
+    def get_env_state(physics):
+        env_state = physics.data.qpos.copy()[6:]
+        return env_state
+
+
+    def get_reward(self, physics):
+        # -------- helpers --------
+
+        self._precompute_bin_aabb(physics)
+        id_cube_site  = physics.model.site("cube_site").id
+        cube_pos      = physics.data.site_xpos[id_cube_site]
+
+        id_ee_site    = physics.model.site("ee_site").id
+        ee_pos        = physics.data.site_xpos[id_ee_site]
+        ee_cube_dist  = np.linalg.norm(ee_pos - cube_pos)
+
+        CUBE_GEOM = "red_box"
+        TABLE_GEOM = "table"
+        FIXED_FINGER_GEOMS  = {f"fixed_jaw_pad_{i}"  for i in range(1, 5)}
+        MOVING_FINGER_GEOMS = {f"moving_jaw_pad_{i}" for i in range(1, 5)}
+        FINGERTIP_GEOMS     = FIXED_FINGER_GEOMS | MOVING_FINGER_GEOMS
+
+        # return whether left gripper is holding the box
+        all_contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            name_geom_1 = physics.model.id2name(id_geom_1, "geom")
+            name_geom_2 = physics.model.id2name(id_geom_2, "geom")
+            contact_pair = (name_geom_1, name_geom_2)
+            all_contact_pairs.append(contact_pair)
+
+        touch_gripper = any(
+            (g1 in FINGERTIP_GEOMS and g2 == CUBE_GEOM) or
+            (g2 in FINGERTIP_GEOMS and g1 == CUBE_GEOM)
+            for (g1, g2) in all_contact_pairs
+        )
+
+        touch_table   = (CUBE_GEOM, TABLE_GEOM) in all_contact_pairs
+
+        cube_over_bin = (
+            (self.bin_min[0] < cube_pos[0] < self.bin_max[0]) and
+            (self.bin_min[1] < cube_pos[1] < self.bin_max[1])
+        )
+
+        inside_bin = self._cube_inside_bin(cube_pos)
+        released   = inside_bin and (not touch_gripper)
+
+        reward = 0.0
+        success = touch_gripper and ee_cube_dist < 0.05
+        if success:
+            print("SUCCESS!")
+            return self.max_reward
+
+        reward -= 0.2
+        return reward

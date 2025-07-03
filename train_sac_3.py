@@ -6,7 +6,6 @@ import torch
 import os
 import argparse
 from stable_baselines3 import SAC
-import cv2
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.vec_env import DummyVecEnv, VecTransposeImage
 from stable_baselines3.common.vec_env.vec_normalize import VecNormalize
@@ -35,8 +34,8 @@ class EvaluationVideoCallback(BaseCallback):
         self,
         evaluate_function,
         eval_freq=1000,
-        best_model_save_path="./checkpoints_from_eval/",
-        video_folder="./videos/",
+        best_model_save_path="./outputs/checkpoints_from_eval/",
+        video_folder="./outputs/videos/",
         callback_on_new_best=None,
         num_episodes=3,
         verbose=1,
@@ -147,7 +146,7 @@ def evaluate(model, num_episodes=10, deterministic=True, frames=None):
         frames = []
     
     # eval_env = gym.make(
-    #     "gym_so100/SO100TransferCube-v0",
+    #     "gym_so100/SO100TouchCube-v0",
     #     obs_type="so100_pixels_agent_pos",
     #     observation_width=64,
     #     observation_height=48,
@@ -238,7 +237,7 @@ def create_environment_old():
     """Create and configure the training environment."""
     def make_env():
         env = gym.make(
-            "gym_so100/SO100TransferCube-v0",
+            "gym_so100/SO100TouchCube-v0",
             obs_type="so100_pixels_agent_pos",
             observation_width=64,
             observation_height=48,
@@ -264,7 +263,7 @@ def create_environment_old():
 def create_single_env():
     """Create a single environment for evaluation."""
     env = gym.make(
-        "gym_so100/SO100TransferCube-v0",
+        "gym_so100/SO100TouchCube-v0",
         obs_type="so100_pixels_agent_pos",
         observation_width=64,
         observation_height=48,
@@ -341,7 +340,7 @@ def create_callbacks(vec_env, save_freq=2000, prefix="sac_so100_get_cube_new"):
     """Create training callbacks for model and environment checkpointing."""
     checkpoint_callback = CheckpointCallback(
         save_freq=save_freq,
-        save_path="./checkpoints/",
+        save_path="./outputs/checkpoints/",
         name_prefix=prefix,
         save_replay_buffer=True,
         save_vecnormalize=True,
@@ -378,8 +377,8 @@ class StageBasedTraining:
         if current_steps < self.stage1_end:
             remaining_stage1 = self.stage1_end - current_steps
             print(f"Stage 1: Exploration phase (continuing from step {current_steps}, {remaining_stage1} steps remaining)")
-            self.model.target_entropy = -1.0  # High exploration
-            self.model.learning_rate = 3e-4   # Fast learning
+            self.model.target_entropy = -1.5  # High exploration
+            self.model.learning_rate = 1e-4   # Fast learning
             self.model.learn(remaining_stage1, callback=self.callback)
             current_steps = self.stage1_end
         else:

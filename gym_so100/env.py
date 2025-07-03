@@ -10,7 +10,7 @@ from gym_so100.constants import (
     DT,
     SO100_JOINTS,
 )
-from gym_so100.tasks.single_arm import BOX_POSE, SO100TransferCubeTask
+from gym_so100.tasks.single_arm import BOX_POSE, SO100TouchCubeTask, SO100TouchCubeSparseTask
 
 from gym_so100.utils import fixed_so100_box_pose, sample_so100_box_pose
 
@@ -84,10 +84,15 @@ class SO100Env(gym.Env):
         # time limit is controlled by StepCounter in env factory
         time_limit = float("inf")
 
-        if task_name == "so100_transfer_cube":
+        if task_name == "so100_touch_cube":
             xml_path = ASSETS_DIR / "so100_transfer_cube.xml"
             physics = mujoco.Physics.from_xml_path(str(xml_path))
-            task = SO100TransferCubeTask(observation_width=self.observation_width, observation_height=self.observation_height)
+            task = SO100TouchCubeTask(observation_width=self.observation_width, observation_height=self.observation_height)
+        elif task_name == "so100_touch_cube_sparse":
+            xml_path = ASSETS_DIR / "so100_transfer_cube.xml"
+            physics = mujoco.Physics.from_xml_path(str(xml_path))
+            task = SO100TouchCubeSparseTask(observation_width=self.observation_width, observation_height=self.observation_height)
+        
         else:
             raise NotImplementedError(task_name)
 
@@ -120,7 +125,9 @@ class SO100Env(gym.Env):
             self._env.task.random.seed(seed)
             self._env.task._random = np.random.RandomState(seed)
 
-        if self.task == "so100_transfer_cube":
+        if self.task == "so100_touch_cube":
+            BOX_POSE[0] = sample_so100_box_pose(seed)  # used in sim reset
+        elif self.task == "so100_touch_cube_sparse":
             BOX_POSE[0] = sample_so100_box_pose(seed)  # used in sim reset
         else:
             raise ValueError(self.task)

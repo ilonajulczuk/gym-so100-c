@@ -8,8 +8,8 @@ import gym_so100  # noqa: F401
 @pytest.mark.parametrize(
     "env_task, obs_type",
     [
-        ("SO100TransferCube-v0", "so100_pixels_agent_pos"),
-        ("SO100TransferCube-v0", "so100_state"),
+        ("SO100TouchCube-v0", "so100_pixels_agent_pos"),
+        ("SO100TouchCube-v0", "so100_state"),
     ],
 )
 def test_aloha(env_task, obs_type):
