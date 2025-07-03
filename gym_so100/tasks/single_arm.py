@@ -474,3 +474,102 @@ class SO100TouchCubeSparseTask(SO100Task):
 
         reward -= 0.2
         return reward
+    
+
+
+class SO100CubeToBinTask(SO100Task):
+    """Actions are normalized to [-1, 1] range. Observations are not, to be used with VecNormalize"""
+    def __init__(self, random=None, observation_width=640,
+        observation_height=480):
+        super().__init__(random=random, observation_width=observation_width,
+            observation_height=observation_height)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        """Sets the state of the environment at the start of each episode."""
+        # TODO Notice: this function does not randomize the env configuration. Instead, set BOX_POSE from outside
+        # reset qpos, control and box position
+        with physics.reset_context():
+            physics.named.data.qpos[:6] = SO100_START_ARM_POSE
+            np.copyto(physics.data.ctrl, SO100_START_ARM_POSE)
+            assert BOX_POSE[0] is not None
+            physics.named.data.qpos[-7:] = BOX_POSE[0]
+            # print(f"{BOX_POSE=}")
+        super().initialize_episode(physics)
+
+    @staticmethod
+    def get_env_state(physics):
+        env_state = physics.data.qpos.copy()[6:]
+        return env_state
+
+
+    def get_cube_position(self, physics):
+        """Get the position of the cube in the environment."""
+        id_cube_site = physics.model.site("cube_site").id
+        cube_pos = physics.data.site_xpos[id_cube_site]
+        return cube_pos.astype(np.float32)
+    
+    def get_reward(self, physics):
+        # -------- helpers --------
+
+        self._precompute_bin_aabb(physics)
+        cube_pos = self.get_cube_position(physics)
+
+        id_ee_site    = physics.model.site("ee_site").id
+        ee_pos        = physics.data.site_xpos[id_ee_site]
+        ee_cube_dist  = np.linalg.norm(ee_pos - cube_pos)
+
+        CUBE_GEOM = "red_box"
+        TABLE_GEOM = "table"
+        FIXED_FINGER_GEOMS  = {f"fixed_jaw_pad_{i}"  for i in range(1, 5)}
+        MOVING_FINGER_GEOMS = {f"moving_jaw_pad_{i}" for i in range(1, 5)}
+        FINGERTIP_GEOMS     = FIXED_FINGER_GEOMS | MOVING_FINGER_GEOMS
+
+        # return whether left gripper is holding the box
+        all_contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            name_geom_1 = physics.model.id2name(id_geom_1, "geom")
+            name_geom_2 = physics.model.id2name(id_geom_2, "geom")
+            contact_pair = (name_geom_1, name_geom_2)
+            all_contact_pairs.append(contact_pair)
+
+        touch_gripper = any(
+            (g1 in FINGERTIP_GEOMS and g2 == CUBE_GEOM) or
+            (g2 in FINGERTIP_GEOMS and g1 == CUBE_GEOM)
+            for (g1, g2) in all_contact_pairs
+        )
+
+        touch_table   = (CUBE_GEOM, TABLE_GEOM) in all_contact_pairs
+
+        cube_over_bin = (
+            (self.bin_min[0] < cube_pos[0] < self.bin_max[0]) and
+            (self.bin_min[1] < cube_pos[1] < self.bin_max[1])
+        )
+
+        inside_bin = self._cube_inside_bin(cube_pos)
+        released   = inside_bin and (not touch_gripper)
+
+        reward = 0.0
+
+        if touch_gripper:
+            reward = 1.0
+            print("Touched gripper!")
+        if touch_gripper and not touch_table:  # lifted
+            reward = 2.0
+            print("Lifted!")
+        if cube_over_bin:
+            reward = 3.0
+            print("Cube over bin!")
+        if inside_bin:
+            reward = 3.5
+            print("Inside bin!")
+        if released:
+            reward = 4.0
+        
+            print("Released!")
+            return self.max_reward
+
+        reward -= 0.002
+        return reward

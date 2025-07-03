@@ -28,6 +28,9 @@ SO100_ACTIONS = [
 ]
 
 
+bin_min = np.array([-0.25, 0.7, 0.01], dtype=np.float32)
+bin_max = np.array([-0.14, 0.76, 0.05], dtype=np.float32)
+
 SO100_START_ARM_POSE = [
     0.0,  # left_arm_waist
     -0.96,  # left_arm_shoulder
