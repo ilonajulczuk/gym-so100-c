@@ -10,6 +10,8 @@ import gym_so100  # noqa: F401
     [
         ("SO100TouchCube-v0", "so100_pixels_agent_pos"),
         ("SO100TouchCube-v0", "so100_state"),
+        ("SO100TouchCubeSparse-v0", "so100_pixels_agent_pos"),
+        ("SO100CubeToBin-v0", "so100_pixels_agent_pos"),
     ],
 )
 def test_aloha(env_task, obs_type):

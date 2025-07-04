@@ -39,7 +39,8 @@ class EvaluationVideoCallback(BaseCallback):
         callback_on_new_best=None,
         num_episodes=3,
         verbose=1,
-        prefix="sac_so100_get_cube_new"
+        prefix="sac_so100_get_cube_new",
+        task=None,
     ):
         """
         Args:
@@ -59,6 +60,7 @@ class EvaluationVideoCallback(BaseCallback):
         self.callback_on_new_best = callback_on_new_best
         self.num_episodes = num_episodes
         self.prefix = prefix
+        self.task = task
         
         # Paths
         self.best_model_save_path = best_model_save_path
@@ -84,7 +86,9 @@ class EvaluationVideoCallback(BaseCallback):
     def _on_step(self) -> bool:
         if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
             # Use your custom evaluate function
-            mean_reward, video_frames = self.evaluate_function(self.model, num_episodes=self.num_episodes, deterministic=True)
+            mean_reward, video_frames = self.evaluate_function(
+                self.model, num_episodes=self.num_episodes, deterministic=True, task=self.task
+            )
             
             if self.verbose > 0:
                 print(f"Eval num_timesteps={self.num_timesteps}, "
@@ -138,7 +142,7 @@ class EvaluationVideoCallback(BaseCallback):
         return True
 
 
-def evaluate(model, num_episodes=10, deterministic=True, frames=None):
+def evaluate(model, num_episodes=10, deterministic=True, frames=None, task=None):
     """
     Evaluate using a single environment (recreated from the original env)
     """
@@ -152,7 +156,7 @@ def evaluate(model, num_episodes=10, deterministic=True, frames=None):
     #     observation_height=48,
     # )
     
-    eval_env = make_vec_env(create_single_env, n_envs=1, vec_env_cls=DummyVecEnv)
+    eval_env = make_vec_env(create_single_env, n_envs=1, vec_env_cls=DummyVecEnv, env_kwargs={"task": task})
     eval_env = VecTransposeImage(eval_env)
     # eval_env = Monitor(eval_env)
     # eval_env = DummyVecEnv([lambda: eval_env])
@@ -260,10 +264,10 @@ def create_environment_old():
     
     return vec_env
 
-def create_single_env():
+def create_single_env(task):
     """Create a single environment for evaluation."""
     env = gym.make(
-        "gym_so100/SO100TouchCube-v0",
+        task,
         obs_type="so100_pixels_agent_pos",
         observation_width=64,
         observation_height=48,
@@ -272,10 +276,10 @@ def create_single_env():
     env = RecordEpisodeStatistics(env)
     return env
     
-    return env
-def create_environment(num_envs=2):
+    
+def create_environment(num_envs, task):
     """Create environment with macOS subprocess fixes."""
-    vec_env = make_vec_env(create_single_env, n_envs=num_envs, vec_env_cls=DummyVecEnv)
+    vec_env = make_vec_env(create_single_env, n_envs=num_envs, vec_env_cls=DummyVecEnv, env_kwargs={"task": task})
     vec_env = VecTransposeImage(vec_env)
     vec_env = VecNormalize(
         vec_env,
@@ -295,11 +299,11 @@ def create_model(vec_env, log_dir):
     model = SAC(
         policy="MultiInputPolicy",
         env=vec_env,
-        learning_rate=3e-4,        # Keep your current rate
+        learning_rate=1e-4,        # Keep your current rate
         buffer_size=50_000,        # Increase this (big stability gain)
         batch_size=256,            # Increase this (stability)
         ent_coef='auto',
-        # target_entropy=-0.5,       # Fix entropy (stop the chaos)
+        target_entropy=-2.0,       # Fix entropy (stop the chaos)
         device=device,
         tensorboard_log=log_dir,
     )
@@ -336,7 +340,7 @@ def load_checkpoint(checkpoint_path, vec_env_stats_path, vec_env, log_dir):
     return model, vec_env, start_steps
 
 
-def create_callbacks(vec_env, save_freq=2000, prefix="sac_so100_get_cube_new"):
+def create_callbacks(vec_env, save_freq, prefix, task):
     """Create training callbacks for model and environment checkpointing."""
     checkpoint_callback = CheckpointCallback(
         save_freq=save_freq,
@@ -350,7 +354,8 @@ def create_callbacks(vec_env, save_freq=2000, prefix="sac_so100_get_cube_new"):
         evaluate_function=evaluate, 
         eval_freq=save_freq * 3, 
         num_episodes=3,
-        prefix=prefix
+        prefix=prefix,
+        task=task,
     )
 
     # Combine callbacks into a single CallbackList
@@ -377,7 +382,7 @@ class StageBasedTraining:
         if current_steps < self.stage1_end:
             remaining_stage1 = self.stage1_end - current_steps
             print(f"Stage 1: Exploration phase (continuing from step {current_steps}, {remaining_stage1} steps remaining)")
-            self.model.target_entropy = -1.5  # High exploration
+            self.model.target_entropy = -2.0  # High exploration
             self.model.learning_rate = 1e-4   # Fast learning
             self.model.learn(remaining_stage1, callback=self.callback)
             current_steps = self.stage1_end
@@ -388,7 +393,7 @@ class StageBasedTraining:
         if current_steps < self.stage2_end:
             remaining_stage2 = self.stage2_end - current_steps
             print(f"Stage 2: Balanced phase (continuing from step {current_steps}, {remaining_stage2} steps remaining)")
-            self.model.target_entropy = -2.0  # Low exploration
+            self.model.target_entropy = -3.0  # Low exploration
             self.model.learning_rate = 1e-4
             self.model.learn(remaining_stage2, callback=self.callback)
             current_steps = self.stage2_end
@@ -399,19 +404,19 @@ class StageBasedTraining:
         if current_steps < self.stage3_end:
             remaining_stage3 = self.stage3_end - current_steps
             print(f"Stage 3: Exploitation phase (continuing from step {current_steps}, {remaining_stage3} steps remaining)")
-            self.model.target_entropy = -3.0  # Low exploration
+            self.model.target_entropy = -7.0  # Low exploration
             self.model.learning_rate = 5e-5   # Slow learning
             self.model.learn(remaining_stage3, callback=self.callback)
         else:
             print(f"Stage 3: Already completed (started from step {current_steps})")
             print("All training stages completed!")
 
-def train_model(checkpoint_path=None, vec_env_stats_path=None, total_steps=50000, save_freq=1000, num_envs=2, prefix="sac_so100_get_cube_new"):
+def train_model(checkpoint_path, vec_env_stats_path, total_steps, save_freq, num_envs, prefix, task):
     """Main training function with optional checkpoint loading."""
     log_dir = "logs/sac_so100"  # will hold TB files
     
     # Create environment
-    vec_env = create_environment(num_envs=num_envs)
+    vec_env = create_environment(num_envs=num_envs, task=task)
     
     # Create or load model
     start_steps = 0
@@ -423,7 +428,7 @@ def train_model(checkpoint_path=None, vec_env_stats_path=None, total_steps=50000
         print("Starting training from scratch")
     
     # Create callbacks
-    combined_callback = create_callbacks(vec_env, save_freq, prefix)
+    combined_callback = create_callbacks(vec_env, save_freq, prefix, task)
 
     # Stage-based training with checkpoint awareness
     trainer = StageBasedTraining(model, vec_env, callback=combined_callback, start_steps=total_steps, num_envs=num_envs)
@@ -504,6 +509,7 @@ def main():
         default=2,
         help="Total number of environments (default: 2)"
     )
+    DEFAULT_TASK = "gym_so100/SO100TouchCube-v0"
     DEFAULT_PREFIX = "sac_so100_pixels_agentpos_new"
     parser.add_argument(
         "--prefix", 
@@ -512,6 +518,12 @@ def main():
         help="Prefix for the model name"
     )
 
+    parser.add_argument(
+        "--task", 
+        type=str, 
+        default=DEFAULT_TASK,
+        help="Task for the model"
+    )
     parser.add_argument(
         "--save-freq", 
         type=int, 
@@ -541,7 +553,7 @@ def main():
             args.vec_env_stats = f"./checkpoints/vec_normalize_stats_{args.prefix}_{steps}.pkl"
             print(f"Auto-detected VecNormalize stats path: {args.vec_env_stats}")
     
-    train_model(args.checkpoint, args.vec_env_stats, args.steps, args.save_freq, args.num_envs, args.prefix)
+    train_model(args.checkpoint, args.vec_env_stats, args.steps, args.save_freq, args.num_envs, args.prefix, args.task)
 
 
 if __name__ == "__main__":
