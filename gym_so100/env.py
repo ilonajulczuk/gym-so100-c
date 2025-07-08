@@ -199,6 +199,7 @@ class SO100GoalEnv(gym.Env):
         super().__init__()
         self.max_episode_steps = 300
         self.current_step = 0
+        self.total_steps = 0
 
         self.render_mode = render_mode
         self.observation_width = observation_width
@@ -215,8 +216,7 @@ class SO100GoalEnv(gym.Env):
 
         goal_dim = 3  # x, y, z coordinates of the goal
 
-        pixels_flat_size = (observation_height * 
-                            observation_width * 3)
+        pixels_flat_size = observation_height * observation_width * 3
         agent_pos_size = len(SO100_JOINTS)
         obs_size = pixels_flat_size + agent_pos_size
 
@@ -242,7 +242,7 @@ class SO100GoalEnv(gym.Env):
         )
 
         # Goal sampling parameters
-        self.goal_space = spaces.Box(
+        self.bin_goal_space = spaces.Box(
             low=np.array([bin_min[0] + 0.005, bin_min[1] + 0.005, 0.01]),
             high=np.array([bin_max[0] - 0.005, bin_max[1] - 0.005, 0.05]),
             dtype=np.float32,
@@ -250,7 +250,6 @@ class SO100GoalEnv(gym.Env):
 
         # Success threshold
         self.distance_threshold = 0.01
-
 
     def render(self):
         return self._render(visualize=True)
@@ -297,7 +296,7 @@ class SO100GoalEnv(gym.Env):
             "pixels": rgb,
             "agent_pos": raw_obs["qpos"].astype(np.float32),  # SO100 uses float32,
         }
-    
+
         return obs
 
     def reset(self, seed=None, options=None):
@@ -308,8 +307,8 @@ class SO100GoalEnv(gym.Env):
         if seed is not None:
             self._env.task.random.seed(seed)
             self._env.task._random = np.random.RandomState(seed)
-
-        BOX_POSE[0] = sample_so100_box_pose(seed)
+        self.box_pose = sample_so100_box_pose(seed)
+        BOX_POSE[0] = self.box_pose
 
         raw_obs = self._env.reset()
         self.goal = self._sample_goal()
@@ -322,7 +321,17 @@ class SO100GoalEnv(gym.Env):
 
     def _sample_goal(self):
         """Sample a goal position within the bin"""
-        return self.goal_space.sample()
+        if self.total_steps < 5000:
+            self.lifted_goal_space = spaces.Box(
+                low=np.array([self.box_pose[0] - 0.03, self.box_pose[1] - 0.03, 0.01]),
+                high=np.array([self.box_pose[0] + 0.03, self.box_pose[1] + 0.03, 0.05]),
+                dtype=np.float32,
+            )
+            return self.lifted_goal_space.sample()
+        if self.total_steps == 5000:
+            print("Switching to bin goal sampling")
+
+        return self.bin_goal_space.sample()
 
     def _extract_achieved_goal(self):
         """Extract current cube position from physics"""
@@ -384,15 +393,15 @@ class SO100GoalEnv(gym.Env):
 
         # Increment step counter
         self.current_step += 1
-        
+        self.total_steps += 1
 
         truncated = False
         # Check if max steps reached
         if self.current_step >= self.max_episode_steps:
             truncated = True
             print("Reached max steps, truncating episode.")
-            info['TimeLimit.truncated'] = True
-            
+            info["TimeLimit.truncated"] = True
+
         terminated = success
         return observation, reward, terminated, truncated, info
 
