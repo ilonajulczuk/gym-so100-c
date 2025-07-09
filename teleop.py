@@ -3,12 +3,13 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import pyquaternion as pyq
+import glfw
 
 # from dm_control import mujoco
 from gym_so100.constants import ASSETS_DIR
 MOCAP_INDEX = 0
 
-from gym_so100.constants import unnormalize_so100, SO100_START_ARM_POSE
+from gym_so100.constants import unnormalize_so100, SO100_START_ARM_POSE, normalize_so100
 
 def rotate_quaternion(quat, axis, angle):
     """
@@ -21,56 +22,7 @@ def rotate_quaternion(quat, axis, angle):
     return q.elements
 
 
-# def key_callback_data(key, data):
-#     """
-#     Callback for key presses but with data passed in
-#     :param key: Key pressed
-#     :param data:  MjData object
-#     :return: None
-#     """
-#     global MOCAP_INDEX
-#     print(chr(key))
-#     if key == 265:  # Up arrow
-#         data.mocap_pos[MOCAP_INDEX, 2] += 0.01
-#     elif key == 264:  # Down arrow
-#         data.mocap_pos[MOCAP_INDEX, 2] -= 0.01
-#     elif key == 263:  # Left arrow
-#         data.mocap_pos[MOCAP_INDEX, 0] -= 0.01
-#     elif key == 262:  # Right arrow
-#         data.mocap_pos[MOCAP_INDEX, 0] += 0.01
-#     elif key == 61:  # +
-#         data.mocap_pos[MOCAP_INDEX, 1] += 0.01
-#     elif key == 45:  # -
-#         data.mocap_pos[MOCAP_INDEX, 1] -= 0.01
-#     # Rotation around X-axis (Pitch)
-#     # Original: Insert (260), Home (261)
-#     # New: Q (81), A (65)
-#     elif key == 81:  # Q key (rotate +10 around X)
-#         data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [1, 0, 0], 10)
-#     elif key == 65:  # A key (rotate -10 around X)
-#         data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [1, 0, 0], -10)
-
-#     # Rotation around Y-axis (Yaw)
-#     # Original: Home (268), End (269) - note: 268 was also Home previously, good to change anyway.
-#     # New: W (87), S (83)
-#     elif key == 87:  # W key (rotate +10 around Y)
-#         data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 1, 0], 10)
-#     elif key == 83:  # S key (rotate -10 around Y)
-#         data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 1, 0], -10)
-
-#     # Rotation around Z-axis (Roll)
-#     # Original: Page Up (266), Page Down (267)
-#     # New: E (69), D (68)
-#     elif key == 69:  # E key (rotate +10 around Z)
-#         data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 0, 1], 10)
-#     elif key == 68:  # D key (rotate -10 around Z)
-#         data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 0, 1], -10)
-
-#     else:
-#         print(key)
-
-
-def key_callback_data_joint_actions(pose,key, data):
+def key_callback_data_joint_actions(pose, key, data):
     """
     Callback for key presses but with data passed in
     :param key: Key pressed
@@ -79,35 +31,37 @@ def key_callback_data_joint_actions(pose,key, data):
     """
 
     print("joints", chr(key))
-    if key == 265:  # Up arrow
-        print("Up arrow pressed")
-        pose[0] += 0.1
-    elif key == 264:  # Down arrow
-        pose[0] -= 0.1
-    elif key == 263:  # Left arrow
-        pose[1] -= 0.1
+    if key == 263:  # Left arrow - rotate around base
+        print("Left arrow pressed")
+        pose[0] += 0.01
     elif key == 262:  # Right arrow
-        pose[1] += 0.1
+        pose[0] -= 0.01
+    elif key == 265:  # Up arrow - rotate around shoulder
+        pose[1] -= 0.01
+    elif key == 264:  # Down arrow
+        pose[1] += 0.01
     elif key == 61:  # +
         pose[2] += 0.01
     elif key == 45:  # -
         pose[2] -= 0.01
-    elif key == 81:  # Q key (rotate +10 around X)
+    elif key == glfw.KEY_V:
         pose[3] += 0.01
-    elif key == 65:  # A key (rotate -10 around X)
+    elif key == glfw.KEY_B: 
         pose[3] -= 0.01
-    elif key == 87:  # W key (rotate +10 around Y)
+    elif key == glfw.KEY_G:  # - wrist rotate
         pose[4] += 0.01
-    elif key == 83:  # S key (rotate -10 around Y)
+    elif key == glfw.KEY_H:  # - wrist rotate
         pose[4] -= 0.01
-    elif key == 69:  # E key (rotate +10 around Z)
+    elif key == glfw.KEY_5:  # gripper
         pose[5] += 0.01
-    elif key == 68:  # D key (rotate -10 around Z)
+    elif key == glfw.KEY_6:  #
         pose[5] -= 0.01
 
+    print("Updated pose:", pose)
 
     # data.qpos[:6] = pose
-    np.copyto(data.ctrl, pose)
+    env_action = unnormalize_so100(pose.copy())
+    np.copyto(data.ctrl, env_action)
     
     # action = data.ctrl.copy()  # Get the current control signal
     # left_arm_action = action[:6]
@@ -121,7 +75,8 @@ def main():
     data = mujoco.MjData(model)
 
     # physics = mujoco.Physics.from_xml_path(str(xml_path))
-    pose = np.array(SO100_START_ARM_POSE, dtype=np.float32)
+    pose = np.array(normalize_so100(SO100_START_ARM_POSE), dtype=np.float32)
+    print("Initial pose:", pose)
     def key_callback(key):
         key_callback_data_joint_actions(pose, key, data)
 

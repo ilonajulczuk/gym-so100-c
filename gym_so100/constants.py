@@ -48,6 +48,24 @@ def unnormalize(num, min_val, max_val):
     scaled = (num + 1) / 2 * (max_val - min_val) + min_val
     return np.clip(scaled, min_val, max_val)
 
+def normalize_so100(action):
+    """Normalize the action to [-1, 1] range"""
+    action[0] = normalize(action[0], -1.92, 1.92)  # rotation around the waist
+    action[1] = normalize(action[1], -3.32, 0.174)
+    action[2] = normalize(action[2], -0.174, 3.14)  # elbow
+    action[3] = normalize(action[3], -1.66, 1.66)  # wrist pitch
+    action[4] = normalize(action[4], -2.79, 2.79)  # wrist roll
+    action[5] = normalize(action[5], -0.174, 1.75)  # gripper position
+    return action
+
+def normalize(num, min_val, max_val):
+    """Scale action from [min_val, max_val] to [-1, 1]"""
+    if min_val == max_val:
+        return 0.0  # Avoid division by zero
+    scaled = (num - min_val) / (max_val - min_val) * 2 - 1
+    return np.clip(scaled, -1, 1)
+
+
 def unnormalize_so100(action):
     action[0] = unnormalize(action[0], -1.92, 1.92)  # rotation around the waist
     action[1] = unnormalize(action[1], -3.32, 0.174)
