@@ -151,6 +151,9 @@
         </body>
       </body>
     </body>
+
+    <body name="mocap_target" mocap="true" pos="0.0 0.0 0.5"> <geom type="sphere" size="0.02" rgba="1 0 0 0.7" group="0"/> <site name="mocap_target_site" pos="0 0 0"/> </body>
+
   </worldbody>
 
   <actuator>
@@ -166,5 +169,8 @@
     <exclude body1="Base" body2="Rotation_Pitch" />
   </contact>
 
+  <equality>
+    <weld site1="mocap_target_site" site2="ee_site" solimp="0.9 0.95 0.001" solref="0.02 1"/>
+  </equality>
 
 </mujoco>
