@@ -113,6 +113,14 @@ def main():
         print("  Reset Simulation: R (Keyboard)")
         print("-------------------------------------------------------------\n")
 
+        # Add this debug code right after the print statements and before the while loop
+        print("Testing gamepad connection...")
+        try:
+            test_events = get_gamepad()
+            print("Gamepad detected successfully!")
+        except Exception as e:
+            print(f"Gamepad detection failed: {e}")
+        
         while viewer.is_running():
             step_start = time.time()
 
@@ -120,7 +128,7 @@ def main():
             try:
                 events = get_gamepad()
                 for event in events:
-                    # print(f"Event: Code={event.code}, State={event.state}") # Uncomment for debugging gamepad input
+                    print(f"Event: Code={event.code}, State={event.state}") # Uncomment this line
 
                     # Mocap Translation (Left Stick: LX, LY)
                     if event.code == 'ABS_X': # Left Stick X-axis
