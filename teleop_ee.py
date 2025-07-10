@@ -53,17 +53,17 @@ def key_callback_data(key, data):
     """
     global MOCAP_INDEX
     print(chr(key))
-    if key == 265:  # Up arrow
+    if key == 265:  # Up arrow - Y axis (+)
         data.mocap_pos[MOCAP_INDEX, 2] += 0.01
-    elif key == 264:  # Down arrow
+    elif key == 264:  # Down arrow - Y axis (-)
         data.mocap_pos[MOCAP_INDEX, 2] -= 0.01
-    elif key == 263:  # Left arrow
+    elif key == 263:  # Left arrow - Z axis (-)
         data.mocap_pos[MOCAP_INDEX, 0] -= 0.01
-    elif key == 262:  # Right arrow
+    elif key == 262:  # Right arrow - Z axis (+)
         data.mocap_pos[MOCAP_INDEX, 0] += 0.01
-    elif key == 61:  # +
+    elif key == 61:  # + - Y axis (+)
         data.mocap_pos[MOCAP_INDEX, 1] += 0.01
-    elif key == 45:  # -
+    elif key == 45:  # - - Y axis (-)
         data.mocap_pos[MOCAP_INDEX, 1] -= 0.01
     # Rotation around X-axis (Pitch)
     # Original: Insert (260), Home (261)
@@ -89,10 +89,10 @@ def key_callback_data(key, data):
     elif key == 68:  # D key (rotate -10 around Z)
         data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 0, 1], -10)
 
-    elif key == glfw.KEY_5:  # gripper
-        data.ctrl[5] += 0.02
-    elif key == glfw.KEY_6:  #
-        data.ctrl[5] -= 0.02
+    elif key == glfw.KEY_5:  # gripper open up
+        data.ctrl[5] += 0.05
+    elif key == glfw.KEY_6:  # gripper close down
+        data.ctrl[5] -= 0.05
     else:
         print(key)
 

@@ -5,7 +5,7 @@ import pyquaternion as pyq
 import time
 import glfw # Still used for key codes in key_callback, but mainly for the viewer setup
 from inputs import get_gamepad # Import the gamepad library
-
+from gym_so100.teleop.gamepad_utils import GamepadControllerHID
 # from dm_control import mujoco
 from gym_so100.constants import ASSETS_DIR
 MOCAP_INDEX = 0
@@ -97,6 +97,15 @@ def main():
     ROTATION_SPEED = 5.0      # Degrees per step for joystick deflection
     GRIPPER_SPEED = 0.005     # Radians per step for gripper triggers
 
+    gamepad = GamepadControllerHID()  # Initialize the gamepad controller
+    gamepad.start()
+    gamepad.update()
+    print("Gamepad initialized. Waiting for input...")
+
+
+    deltas = gamepad.get_deltas()
+    print(f"Gamepad deltas: {deltas}")  # Debugging line to check gamepad input
+
     # Launch the passive viewer
     with mujoco.viewer.launch_passive(model, data, key_callback=key_callback_keyboard) as viewer:
         print("\n--- MuJoCo Gamepad Controls (Mocap Arm + Direct Jaw) ---")
@@ -113,94 +122,95 @@ def main():
         print("  Reset Simulation: R (Keyboard)")
         print("-------------------------------------------------------------\n")
 
-        # Add this debug code right after the print statements and before the while loop
-        print("Testing gamepad connection...")
-        try:
-            test_events = get_gamepad()
-            print("Gamepad detected successfully!")
-        except Exception as e:
-            print(f"Gamepad detection failed: {e}")
-        
+
         while viewer.is_running():
             step_start = time.time()
+            # Process gamepad input
 
-            # --- Gamepad Input Processing ---
-            try:
-                events = get_gamepad()
-                for event in events:
-                    print(f"Event: Code={event.code}, State={event.state}") # Uncomment this line
+            gamepad.update()
+            # print("Gamepad initialized. Waiting for input...")
 
-                    # Mocap Translation (Left Stick: LX, LY)
-                    if event.code == 'ABS_X': # Left Stick X-axis
-                        data.mocap_pos[MOCAP_INDEX, 0] += event.state * TRANSLATION_SPEED / 32768.0 # Normalize joystick range
-                    elif event.code == 'ABS_Y': # Left Stick Y-axis (often inverted)
-                        # We map Y-axis to MuJoCo Z-direction (vertical)
-                        data.mocap_pos[MOCAP_INDEX, 2] -= event.state * TRANSLATION_SPEED / 32768.0 # Invert for intuitive control
 
-                    # Mocap Translation Y (Right Stick: RY)
-                    elif event.code == 'ABS_RY': # Right Stick Y-axis
-                        # We map RY-axis to MuJoCo Y-direction (forward/backward)
-                        data.mocap_pos[MOCAP_INDEX, 1] += event.state * TRANSLATION_SPEED / 32768.0
+            deltas = gamepad.get_all_data()
+            print(f"Gamepad deltas: {deltas}")  # Debugging line to check gamepad input
 
-                    # Mocap Rotation Z (Roll) (Right Stick: RX)
-                    elif event.code == 'ABS_RX': # Right Stick X-axis
-                        if abs(event.state) > 5000: # Add a small deadzone
-                            # Scale joystick input to rotation speed
-                            data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(
-                                data.mocap_quat[MOCAP_INDEX], [0, 0, 1], -event.state * ROTATION_SPEED / 32768.0
-                            )
+            # # --- Gamepad Input Processing ---
+            # try:
+            #     events = get_gamepad()
+            #     for event in events:
+            #         print(f"Event: Code={event.code}, State={event.state}") # Uncomment this line
 
-                    # Mocap Rotations X (Pitch) and Y (Yaw) (Face Buttons)
-                    # Common Xbox/PS Button mapping:
-                    # BTN_SOUTH (A/Cross): Pitch +X
-                    # BTN_EAST (B/Circle): Pitch -X
-                    # BTN_WEST (X/Square): Yaw +Y
-                    # BTN_NORTH (Y/Triangle): Yaw -Y
-                    elif event.code == 'BTN_SOUTH' and event.state == 1: # A button (Xbox) / Cross (PS)
-                        data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [1, 0, 0], ROTATION_SPEED)
-                    elif event.code == 'BTN_EAST' and event.state == 1: # B button (Xbox) / Circle (PS)
-                        data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [1, 0, 0], -ROTATION_SPEED)
-                    elif event.code == 'BTN_WEST' and event.state == 1: # X button (Xbox) / Square (PS)
-                        data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 1, 0], ROTATION_SPEED)
-                    elif event.code == 'BTN_NORTH' and event.state == 1: # Y button (Xbox) / Triangle (PS)
-                        data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 1, 0], -ROTATION_SPEED)
+            #         # Mocap Translation (Left Stick: LX, LY)
+            #         if event.code == 'ABS_X': # Left Stick X-axis
+            #             data.mocap_pos[MOCAP_INDEX, 0] += event.state * TRANSLATION_SPEED / 32768.0 # Normalize joystick range
+            #         elif event.code == 'ABS_Y': # Left Stick Y-axis (often inverted)
+            #             # We map Y-axis to MuJoCo Z-direction (vertical)
+            #             data.mocap_pos[MOCAP_INDEX, 2] -= event.state * TRANSLATION_SPEED / 32768.0 # Invert for intuitive control
 
-                    # Jaw Control (Triggers)
-                    # ABS_Z (Left Trigger), ABS_RZ (Right Trigger) for Xbox-style controllers
-                    elif event.code == 'ABS_Z': # Left Trigger (Open Jaw)
-                        if event.state > 0: # Trigger pressed
-                            try:
-                                jaw_joint_id = model.joint("Jaw").id
-                                jaw_range = model.jnt_range[jaw_joint_id]
-                                # Scale trigger value (0-255) to a small step
-                                jaw_target_qpos = np.clip(jaw_target_qpos + GRIPPER_SPEED * (event.state / 255.0), jaw_range[0], jaw_range[1])
-                            except KeyError: pass
-                    elif event.code == 'ABS_RZ': # Right Trigger (Close Jaw)
-                        if event.state > 0: # Trigger pressed
-                            try:
-                                jaw_joint_id = model.joint("Jaw").id
-                                jaw_range = model.jnt_range[jaw_joint_id]
-                                # Scale trigger value (0-255) to a small step
-                                jaw_target_qpos = np.clip(jaw_target_qpos - GRIPPER_SPEED * (event.state / 255.0), jaw_range[0], jaw_range[1])
-                            except KeyError: pass
+            #         # Mocap Translation Y (Right Stick: RY)
+            #         elif event.code == 'ABS_RY': # Right Stick Y-axis
+            #             # We map RY-axis to MuJoCo Y-direction (forward/backward)
+            #             data.mocap_pos[MOCAP_INDEX, 1] += event.state * TRANSLATION_SPEED / 32768.0
 
-            except EOFError: # No gamepad connected or gamepad disconnected
-                # This error often occurs if get_gamepad() is called when no gamepad is found
-                # print("No gamepad detected. Using keyboard for reset only.") # Uncomment for debugging
-                pass # Continue without gamepad input
-            except Exception as e:
-                # Catch other potential errors from inputs library (e.g., specific driver issues)
-                # print(f"Error reading gamepad: {e}") # Uncomment for debugging
-                pass
+            #         # Mocap Rotation Z (Roll) (Right Stick: RX)
+            #         elif event.code == 'ABS_RX': # Right Stick X-axis
+            #             if abs(event.state) > 5000: # Add a small deadzone
+            #                 # Scale joystick input to rotation speed
+            #                 data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(
+            #                     data.mocap_quat[MOCAP_INDEX], [0, 0, 1], -event.state * ROTATION_SPEED / 32768.0
+            #                 )
 
-            # --- Apply Direct Joint Control (for Jaw only) ---
-            # The 'Jaw' actuator needs to be explicitly set.
-            # The other arm joints are controlled by the IK weld constraint.
-            try:
-                jaw_actuator_id = model.actuator("Jaw").id
-                data.ctrl[jaw_actuator_id] = jaw_target_qpos
-            except KeyError:
-                pass # If 'Jaw' actuator not found, just skip
+            #         # Mocap Rotations X (Pitch) and Y (Yaw) (Face Buttons)
+            #         # Common Xbox/PS Button mapping:
+            #         # BTN_SOUTH (A/Cross): Pitch +X
+            #         # BTN_EAST (B/Circle): Pitch -X
+            #         # BTN_WEST (X/Square): Yaw +Y
+            #         # BTN_NORTH (Y/Triangle): Yaw -Y
+            #         elif event.code == 'BTN_SOUTH' and event.state == 1: # A button (Xbox) / Cross (PS)
+            #             data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [1, 0, 0], ROTATION_SPEED)
+            #         elif event.code == 'BTN_EAST' and event.state == 1: # B button (Xbox) / Circle (PS)
+            #             data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [1, 0, 0], -ROTATION_SPEED)
+            #         elif event.code == 'BTN_WEST' and event.state == 1: # X button (Xbox) / Square (PS)
+            #             data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 1, 0], ROTATION_SPEED)
+            #         elif event.code == 'BTN_NORTH' and event.state == 1: # Y button (Xbox) / Triangle (PS)
+            #             data.mocap_quat[MOCAP_INDEX] = rotate_quaternion(data.mocap_quat[MOCAP_INDEX], [0, 1, 0], -ROTATION_SPEED)
+
+            #         # Jaw Control (Triggers)
+            #         # ABS_Z (Left Trigger), ABS_RZ (Right Trigger) for Xbox-style controllers
+            #         elif event.code == 'ABS_Z': # Left Trigger (Open Jaw)
+            #             if event.state > 0: # Trigger pressed
+            #                 try:
+            #                     jaw_joint_id = model.joint("Jaw").id
+            #                     jaw_range = model.jnt_range[jaw_joint_id]
+            #                     # Scale trigger value (0-255) to a small step
+            #                     jaw_target_qpos = np.clip(jaw_target_qpos + GRIPPER_SPEED * (event.state / 255.0), jaw_range[0], jaw_range[1])
+            #                 except KeyError: pass
+            #         elif event.code == 'ABS_RZ': # Right Trigger (Close Jaw)
+            #             if event.state > 0: # Trigger pressed
+            #                 try:
+            #                     jaw_joint_id = model.joint("Jaw").id
+            #                     jaw_range = model.jnt_range[jaw_joint_id]
+            #                     # Scale trigger value (0-255) to a small step
+            #                     jaw_target_qpos = np.clip(jaw_target_qpos - GRIPPER_SPEED * (event.state / 255.0), jaw_range[0], jaw_range[1])
+            #                 except KeyError: pass
+
+            # except EOFError: # No gamepad connected or gamepad disconnected
+            #     # This error often occurs if get_gamepad() is called when no gamepad is found
+            #     # print("No gamepad detected. Using keyboard for reset only.") # Uncomment for debugging
+            #     pass # Continue without gamepad input
+            # except Exception as e:
+            #     # Catch other potential errors from inputs library (e.g., specific driver issues)
+            #     # print(f"Error reading gamepad: {e}") # Uncomment for debugging
+            #     pass
+
+            # # --- Apply Direct Joint Control (for Jaw only) ---
+            # # The 'Jaw' actuator needs to be explicitly set.
+            # # The other arm joints are controlled by the IK weld constraint.
+            # try:
+            #     jaw_actuator_id = model.actuator("Jaw").id
+            #     data.ctrl[jaw_actuator_id] = jaw_target_qpos
+            # except KeyError:
+            #     pass # If 'Jaw' actuator not found, just skip
 
             # --- Physics Step ---
             mujoco.mj_step(model, data)
