@@ -140,7 +140,7 @@ class GamepadControllerHID(InputController):
             manufacturer = self.device.get_manufacturer_string()
             product = self.device.get_product_string()
             logging.info(f"Connected to {manufacturer} {product}")
-
+            return True
         except OSError as e:
             logging.error(f"Error opening gamepad: {e}")
             logging.error(

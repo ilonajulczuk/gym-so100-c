@@ -12,6 +12,8 @@ from collections import deque
 
 import argparse
 
+from gym_so100.teleop.gamepad_utils import GamepadControllerHID
+
 
 # Key mapping for joint control - converted from the commented code above
 # Format: key_code: (joint_index, delta_value)
@@ -42,6 +44,11 @@ class KeyJointController:
         self.joint_deltas = joint_deltas
         self.joint_state = np.zeros(dof)
 
+    def reset(self):
+        """Reset the joint state to zero"""
+        self.joint_state = np.zeros_like(self.joint_state)
+        return self.joint_state
+    
     def handle_keyboard(self, key):
         """Handle keyboard input for joint control"""
         print("Key pressed:", key)
@@ -60,6 +67,52 @@ class KeyJointController:
         """Get the current joint state"""
         return self.joint_state.copy()
 
+
+
+class GamepadJointController:
+
+    def __init__(self, dof=6):
+        self.gamepad_input = GamepadControllerHID()
+
+        self.joint_state = np.zeros(dof)
+
+    def start(self):
+        return self.gamepad_input.start()
+
+    def reset(self):
+        """Reset the joint state to zero"""
+        self.joint_state = np.zeros_like(self.joint_state)
+        return self.joint_state
+    
+    def update(self):
+        """Update the joint state based on gamepad input"""
+        # Read gamepad input and update joint_state accordingly
+        # This is a placeholder implementation
+        self.gamepad_input.update()
+        data = self.gamepad_input.get_all_data()
+
+        def direction_to_delta(direction):
+            if direction == "left":
+                return -1
+            elif direction == "right":
+                return 1
+            return 0
+
+        self.joint_state[0] += -data["left_x"] * 0.01  # X axis
+        self.joint_state[1] += data["left_y"] * 0.01  # Y axis
+        self.joint_state[2] += data["right_x"] * 0.01  # Z axis
+        self.joint_state[3] += data["right_y"] * 0.01  # Wrist angle
+        self.joint_state[4] += direction_to_delta(data["direction"]) * 0.01  # Wrist rotation
+        self.joint_state[5] += data["lt"] * 0.1  # Open Gripper
+        self.joint_state[5] += -data["rt"] * 0.1  # Close Gripper
+
+        self.joint_state = np.clip(self.joint_state, -1.0, 1.0)
+        return self.joint_state
+    
+    def get_joint_state(self):
+        """Get the current joint state"""
+        return self.joint_state.copy()
+    
 
 class TeleoperationRecorder:
     def __init__(
@@ -102,6 +155,12 @@ class TeleoperationRecorder:
         
         if controller_type == "keyboard":
             self.joint_controller = KeyJointController(DEFAULT_JOINT_DELTAS)
+        elif controller_type == "gamepad":
+            self.joint_controller = GamepadJointController()
+            if not self.joint_controller.start():
+                print("Failed to start gamepad controller, using keyboard control instead.")
+                self.joint_controller = KeyJointController(DEFAULT_JOINT_DELTAS)
+                self.controller_type = "keyboard"
         else:
             self.joint_controller = None
 
@@ -260,6 +319,7 @@ class TeleoperationRecorder:
                         if self.recording:
                             self.stop_recording_episode()
                         observation, info = self.env.reset()
+                        self.joint_controller.reset()  # Reset joint controller state
 
                 # Render and display
                 image = self.env.render()
@@ -267,6 +327,11 @@ class TeleoperationRecorder:
                     display_image = self.annotate_image(image)
                     cv2.imshow(self.window_name, display_image)
 
+                if self.controller_type == "gamepad":
+                    # Update joint state from gamepad input
+                    self.joint_controller.update()
+                    self.action = self.joint_controller.get_joint_state()
+            
                 # Handle keyboard input
                 key = cv2.waitKey(1) & 0xFF
                 if key != 255:  # Key was pressed
@@ -339,8 +404,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--time_between_episodes",
         type=float,
-        default=2,
-        help="Time to wait between episodes (default: 5s)",
+        default=0.1,
+        help="Time to wait between episodes (default: 0.1)",
     )
 
     parser.add_argument(
