@@ -225,7 +225,6 @@ class SO100Task(base.Task):
     def before_step(self, action, physics):
         left_arm_action = action[:self.ARM_DOF + 1]
         env_action = unnormalize_so100(left_arm_action)
-
         super().before_step(env_action, physics)
         return
 
