@@ -279,7 +279,7 @@ def create_single_env(task):
     
 def create_environment(num_envs, task):
     """Create environment with macOS subprocess fixes."""
-    vec_env = make_vec_env(create_single_env, n_envs=num_envs, vec_env_cls=DummyVecEnv, env_kwargs={"task": task})
+    vec_env = make_vec_env(create_single_env, n_envs=num_envs, vec_env_cls=SubprocVecEnv, env_kwargs={"task": task})
     vec_env = VecTransposeImage(vec_env)
     vec_env = VecNormalize(
         vec_env,
@@ -293,7 +293,14 @@ def create_environment(num_envs, task):
 
 def create_model(vec_env, log_dir):
     """Create and configure the SAC model."""
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+
+    device = "cpu"
+    if torch.backends.mps.is_available():
+        print("Using MPS backend for PyTorch")
+        device = "mps"
+    elif torch.cuda.is_available():
+        print("Using CUDA backend for PyTorch")
+        device = "cuda"
     new_logger = configure(log_dir, ["tensorboard", "stdout"])
 
     model = SAC(
