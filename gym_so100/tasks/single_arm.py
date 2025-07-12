@@ -552,24 +552,20 @@ class SO100CubeToBinTask(SO100Task):
         released   = inside_bin and (not touch_gripper)
 
         reward = 0.0
-
+        
         if touch_gripper:
             reward = 1.0
             print("Touched gripper!")
         if touch_gripper and not touch_table:  # lifted
-            reward = 2.0
+            reward = 2
             print("Lifted!")
         if cube_over_bin:
-            reward = 3.0
+            reward = 2.5
             print("Cube over bin!")
         if inside_bin:
-            reward = 3.5
+            reward = 3
             print("Inside bin!")
         if released:
             reward = 4.0
-        
-            print("Released!")
-            return self.max_reward
-
-        reward -= 0.002
+            
         return reward

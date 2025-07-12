@@ -9,6 +9,15 @@ import pickle
 import signal
 import sys
 from collections import deque
+from gymnasium.wrappers import RecordEpisodeStatistics
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
+from stable_baselines3.common.env_util import make_vec_env
+
+
+from stable_baselines3.common.vec_env import VecTransposeImage
+from stable_baselines3.common.vec_env.vec_normalize import VecNormalize
 
 import argparse
 
@@ -98,10 +107,10 @@ class GamepadJointController:
                 return 1
             return 0
 
-        self.joint_state[0] += -data["left_x"] * 0.01  # X axis
-        self.joint_state[1] += data["left_y"] * 0.01  # Y axis
-        self.joint_state[2] += data["right_x"] * 0.01  # Z axis
-        self.joint_state[3] += data["right_y"] * 0.01  # Wrist angle
+        self.joint_state[0] += -data["left_x"] * 0.03  # X axis
+        self.joint_state[1] += data["left_y"] * 0.03  # Y axis
+        self.joint_state[2] += data["right_x"] * 0.03  # Z axis
+        self.joint_state[3] += data["right_y"] * 0.03  # Wrist angle
         self.joint_state[4] += direction_to_delta(data["direction"]) * 0.01  # Wrist rotation
         self.joint_state[5] += data["lt"] * 0.1  # Open Gripper
         self.joint_state[5] += -data["rt"] * 0.1  # Close Gripper
@@ -114,6 +123,33 @@ class GamepadJointController:
         return self.joint_state.copy()
     
 
+def create_single_env(task):
+    """Create a single environment for evaluation."""
+    env = gym.make(
+        task,
+        obs_type="so100_pixels_agent_pos",
+        observation_width=64,
+        observation_height=48,
+    )
+    
+    env = RecordEpisodeStatistics(env)
+    return env
+    
+    
+def create_environment(num_envs, task):
+    """Create environment with macOS subprocess fixes."""
+    vec_env = make_vec_env(create_single_env, n_envs=num_envs, vec_env_cls=SubprocVecEnv, env_kwargs={"task": task})
+    vec_env = VecTransposeImage(vec_env)
+    vec_env = VecNormalize(
+        vec_env,
+        norm_obs=True,
+        norm_reward=False,
+        clip_obs=10.0,
+    )
+    
+    return vec_env
+
+
 class TeleoperationRecorder:
     def __init__(
         self,
@@ -121,21 +157,18 @@ class TeleoperationRecorder:
         time_between_steps,
         time_between_episodes,
         auto_record,
-        env_id="gym_so100/SO100TouchCube-v0",
+        env_id="gym_so100/SO100CubeToBin-v0",
+        num_episodes=3,
     ):
         self.controller_type = controller_type
-        self.env = gym.make(
-            env_id,
-            obs_type="so100_pixels_agent_pos",
-            observation_width=64,
-            observation_height=48,
-        )
+        self.env = create_environment(1, env_id)
 
         self.time_between_steps = time_between_steps
         self.time_between_episodes = time_between_episodes
         self.time_to_next_episode = time_between_episodes
         self.auto_record = auto_record
-
+        self.num_episodes = num_episodes
+        self.episode_count = 0
         # Storage for expert demonstrations
         self.demonstrations = []
         self.current_episode = {
@@ -145,6 +178,7 @@ class TeleoperationRecorder:
             "infos": [],
         }
 
+        self.step = 0
         # Control state
         self.action = np.zeros(self.env.action_space.shape)
         self.recording = False
@@ -280,7 +314,7 @@ class TeleoperationRecorder:
         # Show episode count
         cv2.putText(
             display_image,
-            f"Episodes: {len(self.demonstrations)}",
+            f"Episodes: {len(self.demonstrations)}, steps: {self.step}",
             (10, 60),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
@@ -298,12 +332,18 @@ class TeleoperationRecorder:
         cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
 
         try:
-            while self.running:
+            while self.running and self.episode_count < self.num_episodes:
                 if not self.paused and self.time_to_next_episode <= 0:
                     # Take action in environment
-                    observation, reward, terminated, truncated, info = self.env.step(
-                        self.action.copy()
+                    self.action = self.action.copy().squeeze().reshape(1, -1)
+                    
+                    observation, reward, done, info = self.env.step(
+                        self.action
                     )
+                    terminated = done
+                    truncated = False
+
+                    self.step += 1
                     # Record data if recording
                     if self.recording:
                         self.current_episode["observations"].append(observation)
@@ -319,6 +359,8 @@ class TeleoperationRecorder:
                         if self.recording:
                             self.stop_recording_episode()
                         observation, info = self.env.reset()
+                        self.step = 0  # Reset step count
+                        self.episode_count += 1
                         self.joint_controller.reset()  # Reset joint controller state
 
                 # Render and display
@@ -331,7 +373,7 @@ class TeleoperationRecorder:
                     # Update joint state from gamepad input
                     self.joint_controller.update()
                     self.action = self.joint_controller.get_joint_state()
-            
+
                 # Handle keyboard input
                 key = cv2.waitKey(1) & 0xFF
                 if key != 255:  # Key was pressed
@@ -402,6 +444,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--num_episodes",
+        type=int,
+        default=3,
+        help="Number of episodes to run (default: 3)",
+    )
+
+    parser.add_argument(
         "--time_between_episodes",
         type=float,
         default=0.1,
@@ -423,6 +472,7 @@ if __name__ == "__main__":
             time_between_steps=args.time_between_steps,
             time_between_episodes=args.time_between_episodes,
             auto_record=args.auto_record,
+            num_episodes=args.num_episodes,
         )
         teleop.run()
 

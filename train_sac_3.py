@@ -19,11 +19,6 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 
 
-# Apply same wrappers as training (but single env)
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, VecTransposeImage
-
-from stable_baselines3.common.env_util import make_vec_env
 
 class EvaluationVideoCallback(BaseCallback):
     """
