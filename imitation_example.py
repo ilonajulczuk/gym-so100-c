@@ -4,6 +4,15 @@ Imitation Learning Example using demonstrations from teleoperation.
 
 This script loads expert demonstrations recorded by teleop_example.py
 and trains a Behavioral Cloning (BC) model using the imitation library.
+
+# Just BC training:
+python imitation_example.py --demonstrations expert_demonstrations.pkl
+
+# BC + SAC training:
+python imitation_example.py --demonstrations expert_demonstrations.pkl --continue_with_sac --sac_timesteps 50000
+
+# Skip evaluation:
+python imitation_example.py --demonstrations expert_demonstrations.pkl --continue_with_sac --no_eval
 """
 
 import pickle
@@ -18,19 +27,24 @@ import argparse
 import os
 import torch
 import imageio
+from stable_baselines3 import SAC
 
-from collections import deque
 from gymnasium.wrappers import RecordEpisodeStatistics
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.vec_env import SubprocVecEnv
-
 from stable_baselines3.common.env_util import make_vec_env
-
-
 from stable_baselines3.common.vec_env import VecTransposeImage
 from stable_baselines3.common.vec_env.vec_normalize import VecNormalize
+from stable_baselines3.common.logger import configure
 
-import argparse
+
+device = "cpu"
+if torch.backends.mps.is_available():
+    print("Using MPS backend for PyTorch")
+    device = "mps"
+elif torch.cuda.is_available():
+    print("Using CUDA backend for PyTorch")
+    device = "cuda"
 
 
 def create_single_env(task):
@@ -41,7 +55,6 @@ def create_single_env(task):
         observation_width=64,
         observation_height=48,
     )
-
     env = RecordEpisodeStatistics(env)
     return env
 
@@ -61,7 +74,6 @@ def create_environment(num_envs, task):
         norm_reward=False,
         clip_obs=10.0,
     )
-
     return vec_env
 
 
@@ -91,7 +103,6 @@ def convert_episodes_to_trajectories(episodes):
 
     for i, episode in enumerate(episodes):
         obs = episode["observations"]
-
         acts = np.array(episode["actions"][:-1])
         rews = np.array(episode["rewards"])
         infos = episode["infos"]
@@ -100,12 +111,6 @@ def convert_episodes_to_trajectories(episodes):
         if len(obs) == 0 or len(acts) == 0:
             print(f"Warning: Episode {i} has no data, skipping")
             continue
-
-        # For trajectory format, we need:
-        # - obs: observations including final state
-        # - acts: actions (one less than observations)
-        # - infos: info dicts (same length as actions)
-        # - terminal: whether episode terminated naturally
 
         # Handle the case where obs and acts might have different lengths
         min_length = min(len(obs), len(acts))
@@ -121,7 +126,6 @@ def convert_episodes_to_trajectories(episodes):
             infos[:min_length] if len(infos) >= min_length else [{}] * min_length
         )
 
-        # Ensure observations are numpy arrays
         # Create trajectory
         trajectory = Trajectory(
             obs=episode_obs,
@@ -138,33 +142,20 @@ def convert_episodes_to_trajectories(episodes):
 
 
 def save_bc_policy(bc_trainer, filepath, env):
-    """Manually save BC policy with all needed info"""
+    """Save BC policy with all needed info"""
     save_data = {
-        'policy_state_dict': bc_trainer.policy.state_dict(),
-        'observation_space': env.observation_space,
-        'action_space': env.action_space,
-        'policy_class': type(bc_trainer.policy).__name__,
+        "policy_state_dict": bc_trainer.policy.state_dict(),
+        "observation_space": env.observation_space,
+        "action_space": env.action_space,
+        "policy_class": type(bc_trainer.policy).__name__,
     }
     torch.save(save_data, filepath)
     print(f"Saved BC policy to {filepath}")
 
-def load_bc_policy(filepath, env):
-    """Load BC policy and return as SAC model"""
-    from stable_baselines3 import SAC
-    
-    data = torch.load(filepath)
-    
-    # Create new SAC model
-    sac_model = SAC("MultiInputPolicy", env, verbose=0)
-    
-    # Load the weights
-    sac_model.policy.load_state_dict(data['policy_state_dict'])
-    
-    return sac_model
 
 def train_bc_model(trajectories, env, save_path="bc_model"):
     """
-    Train a Behavioral Cloning model on the trajectories.
+    Train a Behavioral Cloning model with compatible architecture for SAC.
 
     Args:
         trajectories: List of Trajectory objects
@@ -184,7 +175,7 @@ def train_bc_model(trajectories, env, save_path="bc_model"):
             "No transitions available for training. Check your demonstration data."
         )
 
-    # Create BC trainer
+    # Create BC trainer - let it create default policy
     print("Initializing BC trainer...")
     bc_trainer = bc.BC(
         observation_space=env.observation_space,
@@ -193,18 +184,86 @@ def train_bc_model(trajectories, env, save_path="bc_model"):
         rng=rng,
     )
 
-    # Train the model
+    # Train the BC model
     print("Starting BC training...")
-    bc_trainer.train(n_epochs=500)  # Adjust epochs as needed
+    bc_trainer.train(n_epochs=100)  # Adjust epochs as needed
 
     # Save the trained model
-    print(f"Saving trained model to {save_path}")
+    print(f"Saving trained BC model to {save_path}")
     save_bc_policy(bc_trainer, save_path, env)
 
     return bc_trainer
 
 
-def evaluate_model(bc_trainer, env, n_episodes=5, eval_video_path="outputs/bc_eval_video.mp4"):
+def save_bc_as_sac(bc_trainer, save_path, env, log_dir="logs/sac_bc_init"):
+    """Transfer BC policy weights to SAC model"""
+    print("Creating SAC model with same architecture...")
+    sac_model = SAC(
+        policy="MultiInputPolicy",
+        env=env,
+        verbose=1,
+        learning_rate=3e-4,
+        policy_kwargs=dict(
+            net_arch=[256, 256],  # Match BC architecture
+        ),
+        buffer_size=50_000,  # Increase this (big stability gain)
+        batch_size=256,  # Increase this (stability)
+        ent_coef="auto",
+        target_entropy=-2.0,  # Fix entropy (stop the chaos)
+        device=device,
+    )
+
+    new_logger = configure(log_dir, ["tensorboard", "stdout"])
+    sac_model.set_logger(new_logger)
+
+    # Transfer compatible weights from BC to SAC
+    print("Transferring compatible weights from BC to SAC...")
+    bc_state_dict = bc_trainer.policy.state_dict()
+    sac_state_dict = sac_model.policy.state_dict()
+
+    # Transfer only the compatible layers (features extractor and shared layers)
+    transferred_keys = []
+    for key in bc_state_dict:
+        if (
+            key in sac_state_dict
+            and bc_state_dict[key].shape == sac_state_dict[key].shape
+        ):
+            sac_state_dict[key] = bc_state_dict[key]
+            transferred_keys.append(key)
+
+    print(f"Transferred {len(transferred_keys)} compatible layers:")
+    for key in transferred_keys:
+        print(f"  - {key}")
+
+    # Load the updated state dict
+    sac_model.policy.load_state_dict(sac_state_dict)
+
+    # Save the SAC model
+    sac_model.save(save_path)
+    print(f"Saved BC-initialized SAC model to {save_path}")
+
+    return sac_model
+
+
+def continue_with_sac_training(
+    bc_sac_model, env, total_timesteps=100000, save_path="final_sac_model"
+):
+    """Continue training the BC-initialized SAC model"""
+    print(f"Starting SAC fine-tuning for {total_timesteps} timesteps...")
+
+    # Continue training with SAC
+    bc_sac_model.learn(total_timesteps=total_timesteps)
+
+    # Save the final SAC model
+    bc_sac_model.save(save_path)
+    print(f"Saved final SAC model to {save_path}")
+
+    return bc_sac_model
+
+
+def evaluate_model(
+    bc_trainer, env, n_episodes=5, eval_video_path="outputs/bc_eval_video.mp4"
+):
     """
     Evaluate the trained BC model.
 
@@ -213,11 +272,11 @@ def evaluate_model(bc_trainer, env, n_episodes=5, eval_video_path="outputs/bc_ev
         env: Gymnasium environment
         n_episodes: Number of episodes to evaluate
     """
-    print(f"Evaluating model over {n_episodes} episodes...")
+    print(f"Evaluating BC model over {n_episodes} episodes...")
 
     total_rewards = []
-
     frames = []
+
     for episode in range(n_episodes):
         obs = env.reset()
         episode_reward = 0
@@ -243,19 +302,67 @@ def evaluate_model(bc_trainer, env, n_episodes=5, eval_video_path="outputs/bc_ev
     mean_reward = np.mean(total_rewards)
     std_reward = np.std(total_rewards)
 
-    print(f"\nEvaluation Results:")
+    print(f"\nBC Evaluation Results:")
     print(f"Mean reward: {mean_reward:.2f} ± {std_reward:.2f}")
     print(f"Min reward: {np.min(total_rewards):.2f}")
     print(f"Max reward: {np.max(total_rewards):.2f}")
 
-    imageio.mimsave(eval_video_path, np.stack(frames), fps=25)
+    if frames:
+        imageio.mimsave(eval_video_path, np.stack(frames), fps=25)
+        print(f"Saved evaluation video to {eval_video_path}")
+
+    return mean_reward, std_reward
+
+
+def evaluate_sac_model(
+    sac_model, env, n_episodes=5, eval_video_path="outputs/sac_eval_video.mp4"
+):
+    """Evaluate SAC model"""
+    print(f"Evaluating SAC model over {n_episodes} episodes...")
+
+    total_rewards = []
+    frames = []
+
+    for episode in range(n_episodes):
+        obs = env.reset()
+        episode_reward = 0
+        step_count = 0
+
+        while True:
+            # SAC prediction
+            action, _ = sac_model.predict(obs, deterministic=True)
+
+            obs, reward, done, info = env.step(action)
+            episode_reward += reward
+            step_count += 1
+
+            image = env.render()
+            frames.append(image)
+
+            if done:
+                break
+
+        total_rewards.append(episode_reward)
+        print(f"Episode {episode + 1}: {episode_reward} reward, {step_count} steps")
+
+    mean_reward = np.mean(total_rewards)
+    std_reward = np.std(total_rewards)
+
+    print(f"\nSAC Evaluation Results:")
+    print(f"Mean reward: {mean_reward:.2f} ± {std_reward:.2f}")
+    print(f"Min reward: {np.min(total_rewards):.2f}")
+    print(f"Max reward: {np.max(total_rewards):.2f}")
+
+    if frames:
+        imageio.mimsave(eval_video_path, np.stack(frames), fps=25)
+        print(f"Saved evaluation video to {eval_video_path}")
 
     return mean_reward, std_reward
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Train BC model from teleoperation demonstrations"
+        description="Train BC model from teleoperation demonstrations and optionally continue with SAC"
     )
     parser.add_argument(
         "--demonstrations",
@@ -281,6 +388,20 @@ def main():
     parser.add_argument(
         "--no_eval", action="store_true", help="Skip evaluation after training"
     )
+    parser.add_argument(
+        "--continue_with_sac",
+        action="store_true",
+        help="Continue training with SAC after BC",
+    )
+    parser.add_argument(
+        "--sac_timesteps", type=int, default=100000, help="SAC training timesteps"
+    )
+    parser.add_argument(
+        "--sac_save_path",
+        type=str,
+        default="bc_sac_model",
+        help="Path to save SAC model",
+    )
 
     args = parser.parse_args()
 
@@ -293,7 +414,7 @@ def main():
             print("Error: No episodes found in demonstrations file")
             return
 
-        # Create environment (same as used in teleoperation)
+        # Create environment
         print("Creating environment...")
         env = create_environment(1, args.env_id)
 
@@ -309,10 +430,29 @@ def main():
         print("Training BC model...")
         bc_trainer = train_bc_model(trajectories, env, args.model_save_path)
 
-        # Evaluate model (optional)
+        # Evaluate BC model (optional)
         if not args.no_eval:
-            print("Evaluating trained model...")
+            print("Evaluating trained BC model...")
             evaluate_model(bc_trainer, env, args.eval_episodes)
+
+        # Transfer BC weights to SAC model
+        print("Creating SAC model with BC initialization...")
+        bc_sac_model = save_bc_as_sac(bc_trainer, args.sac_save_path + "_bc_init", env)
+
+        # Continue with SAC training (optional)
+        if args.continue_with_sac:
+            print("Continuing with SAC training...")
+            final_sac_model = continue_with_sac_training(
+                bc_sac_model,
+                env,
+                total_timesteps=args.sac_timesteps,
+                save_path=args.sac_save_path + "_final",
+            )
+
+            # Evaluate final SAC model
+            if not args.no_eval:
+                print("Evaluating final SAC model...")
+                evaluate_sac_model(final_sac_model, env, args.eval_episodes)
 
         print("Training completed successfully!")
 
