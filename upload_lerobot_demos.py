@@ -51,7 +51,6 @@ def convert_demos_to_dataset(
     """Convert expert demonstrations to LeRobot dataset"""
 
     dataset_dir = kwargs["root"] + "/" + user_id + "/" + env_name
-    onscreen_render = kwargs.get("render", False)
 
     # Load expert demonstrations
     print(f"Loading demonstrations from {demonstrations_file}")
@@ -130,11 +129,6 @@ def convert_demos_to_dataset(
             infos[:min_length] if len(infos) >= min_length else [{}] * min_length
         )
 
-        # Visualize first episode if render is enabled
-        if onscreen_render and episode_idx == 0:
-            _, ax = plt.subplots(1, 1, figsize=(10, 8))
-            plt.ion()
-
         episode_reward_sum = 0
         for i in range(len(episode_observations)):
             obs = episode_observations[i]
@@ -204,16 +198,11 @@ def convert_demos_to_dataset(
             dataset.add_frame(data_frame, task=env_name)
             episode_reward_sum += reward
 
-            
-
-        if onscreen_render and episode_idx == 0:
-            plt.close()
 
         # Save the episode
         print(f"Episode {episode_idx}: Total reward = {episode_reward_sum}")
        
-        
-
+    
         dataset.image_writer.wait_until_done()
         dataset.save_episode()
         dataset.clear_episode_buffer()
@@ -248,13 +237,10 @@ if __name__ == "__main__":
         default="gym_so100/SO100CubeToBin-v0",
         help="Environment name",
     )
-    parser.add_argument(
-        "--render", action="store_true", help="Render the environment on display"
-    )
 
     """
     Example usage:
-    python upload_lerobot_demos.py --demonstrations expert_demonstrations.pkl --env-name gym_so100/SO100CubeToBin-v0 --render
+    python upload_lerobot_demos.py --demonstrations expert_demonstrations.pkl --env-name gym_so100/SO100CubeToBin-v0
     """
     args = parser.parse_args()
     kwargs = vars(args)
@@ -264,5 +250,4 @@ if __name__ == "__main__":
         user_id=args.user_id,
         env_name=args.env_name,
         root=args.root,
-        render=args.render,
     )
