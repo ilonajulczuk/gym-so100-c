@@ -145,9 +145,11 @@ def convert_demos_to_dataset(
                         image_data = pixels.squeeze(0)
                     else:
                         image_data = pixels
-                    
-                    # Handle image data range for LeRobot - normalize each channel independently
-                    image_data = np.clip(image_data * 255, 0, 255).astype(np.uint8)
+
+                    if image_data.dtype != np.uint8 and image_data.min() <= 0:
+                        # Poor woman's normalization - clip to [0, 255] and convert to uint8.
+                        # This is a hack for observations after vecenvnorm normalization.
+                        image_data = np.clip(image_data * 255, 0, 255).astype(np.uint8)
                 else:
                     print(f"Warning: Unexpected pixels type {type(pixels)} at step {i}")
                     break
