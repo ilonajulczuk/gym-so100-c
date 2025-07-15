@@ -1,4 +1,7 @@
-# example.py
+# The goal of this file is to:
+# - instantiate the environment
+# - step with random actions
+# - render the video of the actual "pixels" but could also be from rendered images.
 import imageio
 import gymnasium as gym
 import numpy as np
@@ -23,4 +26,4 @@ for _ in range(1000):
         observation, info = env.reset()
 
 env.close()
-imageio.mimsave("outputs/example.mp4", np.stack(frames), fps=25)
+imageio.mimsave("../outputs/example.mp4", np.stack(frames), fps=25)

@@ -1,5 +1,6 @@
-# teleoperation_example.py
-import imageio
+# record_teleop.py is used to record learning episodes interacting with the gym_so100 envs.
+# The interaction is done via controller 8BitDO Pro 2 or a keyboard.
+
 import gymnasium as gym
 import numpy as np
 import gym_so100
@@ -8,9 +9,7 @@ import time
 import pickle
 import signal
 import sys
-from collections import deque
 from gymnasium.wrappers import RecordEpisodeStatistics
-from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from stable_baselines3.common.env_util import make_vec_env
@@ -57,7 +56,7 @@ class KeyJointController:
         """Reset the joint state to zero"""
         self.joint_state = np.zeros_like(self.joint_state)
         return self.joint_state
-    
+
     def handle_keyboard(self, key):
         """Handle keyboard input for joint control"""
         print("Key pressed:", key)
@@ -77,7 +76,6 @@ class KeyJointController:
         return self.joint_state.copy()
 
 
-
 class GamepadJointController:
 
     def __init__(self, dof=6):
@@ -92,7 +90,7 @@ class GamepadJointController:
         """Reset the joint state to zero"""
         self.joint_state = np.zeros_like(self.joint_state)
         return self.joint_state
-    
+
     def update(self):
         """Update the joint state based on gamepad input"""
         # Read gamepad input and update joint_state accordingly
@@ -111,17 +109,19 @@ class GamepadJointController:
         self.joint_state[1] += data["left_y"] * 0.03  # Y axis
         self.joint_state[2] += data["right_x"] * 0.03  # Z axis
         self.joint_state[3] += data["right_y"] * 0.03  # Wrist angle
-        self.joint_state[4] += direction_to_delta(data["direction"]) * 0.01  # Wrist rotation
+        self.joint_state[4] += (
+            direction_to_delta(data["direction"]) * 0.01
+        )  # Wrist rotation
         self.joint_state[5] += data["lt"] * 0.1  # Open Gripper
         self.joint_state[5] += -data["rt"] * 0.1  # Close Gripper
 
         self.joint_state = np.clip(self.joint_state, -1.0, 1.0)
         return self.joint_state
-    
+
     def get_joint_state(self):
         """Get the current joint state"""
         return self.joint_state.copy()
-    
+
 
 def create_single_env(task):
     """Create a single environment for evaluation."""
@@ -131,14 +131,19 @@ def create_single_env(task):
         observation_width=640,
         observation_height=480,
     )
-    
+
     env = RecordEpisodeStatistics(env)
     return env
-    
-    
+
+
 def create_environment(num_envs, task):
     """Create environment with macOS subprocess fixes."""
-    vec_env = make_vec_env(create_single_env, n_envs=num_envs, vec_env_cls=SubprocVecEnv, env_kwargs={"task": task})
+    vec_env = make_vec_env(
+        create_single_env,
+        n_envs=num_envs,
+        vec_env_cls=SubprocVecEnv,
+        env_kwargs={"task": task},
+    )
     vec_env = VecTransposeImage(vec_env)
     vec_env = VecNormalize(
         vec_env,
@@ -146,7 +151,7 @@ def create_environment(num_envs, task):
         norm_reward=False,
         clip_obs=255,
     )
-    
+
     return vec_env
 
 
@@ -186,13 +191,15 @@ class TeleoperationRecorder:
         self.running = True  # Flag to control main loop
 
         # Initialize joint controller if requested
-        
+
         if controller_type == "keyboard":
             self.joint_controller = KeyJointController(DEFAULT_JOINT_DELTAS)
         elif controller_type == "gamepad":
             self.joint_controller = GamepadJointController()
             if not self.joint_controller.start():
-                print("Failed to start gamepad controller, using keyboard control instead.")
+                print(
+                    "Failed to start gamepad controller, using keyboard control instead."
+                )
                 self.joint_controller = KeyJointController(DEFAULT_JOINT_DELTAS)
                 self.controller_type = "keyboard"
         else:
@@ -221,7 +228,10 @@ class TeleoperationRecorder:
     def handle_keyboard(self, key):
         """Handle keyboard input for teleoperation"""
         # Try joint controller first if available
-        if self.controller_type == "keyboard" and self.joint_controller.handle_keyboard(key):
+        if (
+            self.controller_type == "keyboard"
+            and self.joint_controller.handle_keyboard(key)
+        ):
             # Joint controller handled the key, update action from joint state
             self.action = self.joint_controller.get_joint_state()
             return None
@@ -296,9 +306,7 @@ class TeleoperationRecorder:
             status_text.append("PAUSED")
 
         if self.time_to_next_episode > 0:
-            status_text.append(
-                f"Next episode in {self.time_to_next_episode:.2f}s"
-            )
+            status_text.append(f"Next episode in {self.time_to_next_episode:.2f}s")
 
         status_str = " | ".join(status_text) if status_text else "READY"
         cv2.putText(
@@ -323,7 +331,6 @@ class TeleoperationRecorder:
         )
         return display_image
 
-
     def run(self):
         """Main teleoperation loop"""
         observation, info = self.env.reset()
@@ -336,10 +343,8 @@ class TeleoperationRecorder:
                 if not self.paused and self.time_to_next_episode <= 0:
                     # Take action in environment
                     self.action = self.action.copy().squeeze().reshape(1, -1)
-                    
-                    observation, reward, done, info = self.env.step(
-                        self.action
-                    )
+
+                    observation, reward, done, info = self.env.step(self.action)
                     terminated = done
                     truncated = False
 

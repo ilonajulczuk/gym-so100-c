@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 """
-Imitation Learning Example using demonstrations from teleoperation.
+Imitation learning (Behavior Cloning) using demonstrations from teleoperation.
 
 This script loads expert demonstrations recorded by teleop_example.py
 and trains a Behavioral Cloning (BC) model using the imitation library.
 
+Can be used as pretraining for SAC and can be used to train the newly pretrained SAC model.
+
 # Just BC training:
-python imitation_example.py --demonstrations expert_demonstrations.pkl
+python train_bc.py --demonstrations expert_demonstrations.pkl
 
 # BC + SAC training:
-python imitation_example.py --demonstrations expert_demonstrations.pkl --continue_with_sac --sac_timesteps 50000
+python train_bc.py --demonstrations expert_demonstrations.pkl --continue_with_sac --sac_timesteps 50000
 
 # Skip evaluation:
-python imitation_example.py --demonstrations expert_demonstrations.pkl --continue_with_sac --no_eval
+python train_bc.py --demonstrations expert_demonstrations.pkl --continue_with_sac --no_eval
 
 # Custom policy architecture:
-python imitation_example.py --demonstrations expert_demonstrations.pkl --net_arch 512 512 256
+python train_bc.py --demonstrations expert_demonstrations.pkl --net_arch 512 512 256
 
 # Custom BC epochs and architecture:
-python imitation_example.py --demonstrations expert_demonstrations.pkl --bc_epochs 200 --net_arch 128 128
+python train_bc.py --demonstrations expert_demonstrations.pkl --bc_epochs 200 --net_arch 128 128
 """
 
 import pickle
@@ -352,7 +354,7 @@ def continue_with_sac_training(
 
 
 def evaluate_model(
-    bc_trainer, env, n_episodes=5, eval_video_path="outputs/bc_eval_video.mp4"
+    bc_trainer, env, n_episodes=5, eval_video_path="../outputs/bc_eval_video.mp4"
 ):
     """
     Evaluate the trained BC model.
@@ -405,7 +407,7 @@ def evaluate_model(
 
 
 def evaluate_sac_model(
-    sac_model, env, n_episodes=5, eval_video_path="outputs/sac_eval_video.mp4"
+    sac_model, env, n_episodes=5, eval_video_path="../outputs/sac_eval_video.mp4"
 ):
     """Evaluate SAC model"""
     print(f"Evaluating SAC model over {n_episodes} episodes...")
