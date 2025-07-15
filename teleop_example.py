@@ -128,8 +128,8 @@ def create_single_env(task):
     env = gym.make(
         task,
         obs_type="so100_pixels_agent_pos",
-        observation_width=64,
-        observation_height=48,
+        observation_width=640,
+        observation_height=480,
     )
     
     env = RecordEpisodeStatistics(env)
@@ -142,9 +142,9 @@ def create_environment(num_envs, task):
     vec_env = VecTransposeImage(vec_env)
     vec_env = VecNormalize(
         vec_env,
-        norm_obs=True,
+        norm_obs=False,
         norm_reward=False,
-        clip_obs=10.0,
+        clip_obs=255,
     )
     
     return vec_env
@@ -158,7 +158,7 @@ class TeleoperationRecorder:
         time_between_episodes,
         auto_record,
         env_id="gym_so100/SO100CubeToBin-v0",
-        num_episodes=3,
+        num_episodes=10,
     ):
         self.controller_type = controller_type
         self.env = create_environment(1, env_id)

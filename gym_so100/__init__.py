@@ -24,7 +24,7 @@ register(
 register(
     id="gym_so100/SO100CubeToBin-v0",
     entry_point="gym_so100.env:SO100Env",
-    max_episode_steps=500,
+    max_episode_steps=700,
     # Even after seeding, the rendered observations are slightly different,
     # so we set `nondeterministic=True` to pass `check_env` tests
     nondeterministic=True,

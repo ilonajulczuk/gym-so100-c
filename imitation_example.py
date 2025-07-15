@@ -13,6 +13,12 @@ python imitation_example.py --demonstrations expert_demonstrations.pkl --continu
 
 # Skip evaluation:
 python imitation_example.py --demonstrations expert_demonstrations.pkl --continue_with_sac --no_eval
+
+# Custom policy architecture:
+python imitation_example.py --demonstrations expert_demonstrations.pkl --net_arch 512 512 256
+
+# Custom BC epochs and architecture:
+python imitation_example.py --demonstrations expert_demonstrations.pkl --bc_epochs 200 --net_arch 128 128
 """
 
 import pickle
@@ -28,6 +34,7 @@ import os
 import torch
 import imageio
 from stable_baselines3 import SAC
+from stable_baselines3.common.policies import ActorCriticPolicy
 
 from gymnasium.wrappers import RecordEpisodeStatistics
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -45,6 +52,12 @@ if torch.backends.mps.is_available():
 elif torch.cuda.is_available():
     print("Using CUDA backend for PyTorch")
     device = "cuda"
+else:
+    print("Using CPU backend for PyTorch")
+    device = "cpu"
+
+# Set default dtype to float32 to avoid MPS compatibility issues
+torch.set_default_dtype(torch.float32)
 
 
 def create_single_env(task):
@@ -103,8 +116,8 @@ def convert_episodes_to_trajectories(episodes):
 
     for i, episode in enumerate(episodes):
         obs = episode["observations"]
-        acts = np.array(episode["actions"][:-1])
-        rews = np.array(episode["rewards"])
+        acts = np.array(episode["actions"][:-1], dtype=np.float32)
+        rews = np.array(episode["rewards"], dtype=np.float32)
         infos = episode["infos"]
 
         # Check if episode has valid data
@@ -141,6 +154,54 @@ def convert_episodes_to_trajectories(episodes):
     return trajectories
 
 
+def create_custom_policy(observation_space, action_space, policy_kwargs=None):
+    """
+    Create a custom policy with configurable architecture for BC training.
+
+    Args:
+        observation_space: Environment observation space
+        action_space: Environment action space
+        policy_kwargs: Dict with policy configuration (net_arch, activation_fn, etc.)
+
+    Returns:
+        ActorCriticPolicy instance with custom architecture
+    """
+    if policy_kwargs is None:
+        policy_kwargs = {
+            "net_arch": [256, 256],
+            "activation_fn": torch.nn.ReLU,
+        }
+
+    # Determine policy class based on observation space
+    from stable_baselines3.common.policies import MultiInputActorCriticPolicy
+    from gymnasium.spaces import Dict
+
+    if isinstance(observation_space, Dict):
+        # For dict observations (like image + state)
+        policy_class = MultiInputActorCriticPolicy
+    else:
+        # For simple observations
+        policy_class = ActorCriticPolicy
+
+    print(f"Using policy class: {policy_class.__name__}")
+
+    # Create a policy with the specified architecture
+    policy = policy_class(
+        observation_space=observation_space,
+        action_space=action_space,
+        lr_schedule=lambda _: 3e-4,  # Dummy learning rate schedule
+        net_arch=policy_kwargs.get("net_arch", [256, 256]),
+        activation_fn=policy_kwargs.get("activation_fn", torch.nn.ReLU),
+    )
+
+    # Ensure policy is on the correct device and uses float32
+    policy = policy.to(device)
+    if hasattr(policy, "float"):
+        policy = policy.float()  # Ensure float32 precision
+
+    return policy
+
+
 def save_bc_policy(bc_trainer, filepath, env):
     """Save BC policy with all needed info"""
     save_data = {
@@ -153,14 +214,18 @@ def save_bc_policy(bc_trainer, filepath, env):
     print(f"Saved BC policy to {filepath}")
 
 
-def train_bc_model(trajectories, env, save_path="bc_model"):
+def train_bc_model(
+    trajectories, env, save_path="bc_model", policy_kwargs=None, n_epochs=100
+):
     """
-    Train a Behavioral Cloning model with compatible architecture for SAC.
+    Train a Behavioral Cloning model with customizable architecture for SAC compatibility.
 
     Args:
         trajectories: List of Trajectory objects
         env: Gymnasium environment
         save_path: Path to save the trained model
+        policy_kwargs: Dict with policy configuration (net_arch, activation_fn, etc.)
+        n_epochs: Number of training epochs
     """
     # Set up random number generator
     rng = np.random.default_rng(seed=42)
@@ -175,18 +240,35 @@ def train_bc_model(trajectories, env, save_path="bc_model"):
             "No transitions available for training. Check your demonstration data."
         )
 
-    # Create BC trainer - let it create default policy
+    # Set default policy kwargs to match SAC architecture
+    if policy_kwargs is None:
+        policy_kwargs = {
+            "net_arch": [256, 256],  # Default SAC architecture
+            "activation_fn": torch.nn.ReLU,
+        }
+
+    print(f"Using policy architecture: {policy_kwargs}")
+
+    # Create custom policy
+    print("Creating custom policy...")
+    policy = create_custom_policy(
+        env.observation_space, env.action_space, policy_kwargs
+    )
+
+    # Create BC trainer with custom policy
     print("Initializing BC trainer...")
     bc_trainer = bc.BC(
         observation_space=env.observation_space,
         action_space=env.action_space,
         demonstrations=transitions,
         rng=rng,
+        policy=policy,
+        device=device,
     )
 
     # Train the BC model
-    print("Starting BC training...")
-    bc_trainer.train(n_epochs=100)  # Adjust epochs as needed
+    print(f"Starting BC training for {n_epochs} epochs...")
+    bc_trainer.train(n_epochs=n_epochs)
 
     # Save the trained model
     print(f"Saving trained BC model to {save_path}")
@@ -195,17 +277,25 @@ def train_bc_model(trajectories, env, save_path="bc_model"):
     return bc_trainer
 
 
-def save_bc_as_sac(bc_trainer, save_path, env, log_dir="logs/sac_bc_init"):
-    """Transfer BC policy weights to SAC model"""
-    print("Creating SAC model with same architecture...")
+def save_bc_as_sac(
+    bc_trainer, save_path, env, log_dir="logs/sac_bc_init", policy_kwargs=None
+):
+    """Transfer BC policy weights to SAC model with matching architecture"""
+
+    # Use the same policy kwargs as BC if not provided
+    if policy_kwargs is None:
+        policy_kwargs = {
+            "net_arch": [256, 256],  # Match BC architecture
+            "activation_fn": torch.nn.ReLU,
+        }
+
+    print(f"Creating SAC model with architecture: {policy_kwargs}")
     sac_model = SAC(
         policy="MultiInputPolicy",
         env=env,
         verbose=1,
         learning_rate=3e-4,
-        policy_kwargs=dict(
-            net_arch=[256, 256],  # Match BC architecture
-        ),
+        policy_kwargs=policy_kwargs,
         buffer_size=50_000,  # Increase this (big stability gain)
         batch_size=256,  # Increase this (stability)
         ent_coef="auto",
@@ -402,8 +492,26 @@ def main():
         default="bc_sac_model",
         help="Path to save SAC model",
     )
+    parser.add_argument(
+        "--bc_epochs", type=int, default=100, help="Number of BC training epochs"
+    )
+    parser.add_argument(
+        "--net_arch",
+        nargs="+",
+        type=int,
+        default=[256, 256],
+        help="Network architecture (list of layer sizes)",
+    )
 
     args = parser.parse_args()
+
+    # Create policy kwargs from arguments
+    policy_kwargs = {
+        "net_arch": args.net_arch,
+        "activation_fn": torch.nn.ReLU,
+    }
+
+    print(f"Using policy architecture: {policy_kwargs}")
 
     try:
         # Load demonstrations
@@ -426,18 +534,29 @@ def main():
             print("Error: No valid trajectories could be created from episodes")
             return
 
-        # Train BC model
+        # Train BC model with custom architecture
         print("Training BC model...")
-        bc_trainer = train_bc_model(trajectories, env, args.model_save_path)
+        bc_trainer = train_bc_model(
+            trajectories,
+            env,
+            args.model_save_path,
+            policy_kwargs=policy_kwargs,
+            n_epochs=args.bc_epochs,
+        )
 
         # Evaluate BC model (optional)
         if not args.no_eval:
             print("Evaluating trained BC model...")
             evaluate_model(bc_trainer, env, args.eval_episodes)
 
-        # Transfer BC weights to SAC model
+        # Transfer BC weights to SAC model with matching architecture
         print("Creating SAC model with BC initialization...")
-        bc_sac_model = save_bc_as_sac(bc_trainer, args.sac_save_path + "_bc_init", env)
+        bc_sac_model = save_bc_as_sac(
+            bc_trainer,
+            args.sac_save_path + "_bc_init",
+            env,
+            policy_kwargs=policy_kwargs,
+        )
 
         # Continue with SAC training (optional)
         if args.continue_with_sac:
