@@ -46,7 +46,7 @@ def load_demonstrations(filename):
 
 
 def convert_demos_to_dataset(
-    demonstrations_file: str, user_id: str, env_name: str, **kwargs
+    demonstrations_file: str, user_id: str, repo_id: str, env_name: str, **kwargs
 ):
     """Convert expert demonstrations to LeRobot dataset"""
 
@@ -65,11 +65,11 @@ def convert_demos_to_dataset(
 
     features = DEFAULT_FEATURES
 
-    # For expert demonstrations, pixels is a numpy array with shape (1, 3, 48, 64)
+    # For expert demonstrations, pixels is a numpy array with shape (1, 3, 480, 640)
     # We need to squeeze the first dimension and use it as "top" image
     features["observation.images.top"] = {
         "dtype": "video",
-        "shape": (3, 48, 64),  # C, H, W format
+        "shape": (3, 480, 640),  # C, H, W format
         "names": ["channel", "height", "width"],
     }
 
@@ -90,7 +90,7 @@ def convert_demos_to_dataset(
     }
 
     dataset = LeRobotDataset.create(
-        repo_id="attilczuk/gym-so100experiment2",
+        repo_id=f"{user_id}/{repo_id}",
         fps=FPS,
         root=dataset_dir,
         features=features,
@@ -231,6 +231,9 @@ if __name__ == "__main__":
         "--user-id", type=str, default="test_user", help="User ID for the dataset"
     )
     parser.add_argument(
+        "--repo-id", type=str, default="myrepo", help="Repo ID for the dataset"
+    )
+    parser.add_argument(
         "--root", type=str, default="dataset", help="Root dir to save recordings"
     )
     parser.add_argument(
@@ -250,6 +253,7 @@ if __name__ == "__main__":
     convert_demos_to_dataset(
         demonstrations_file=args.demonstrations,
         user_id=args.user_id,
+        repo_id=args.repo_id,
         env_name=args.env_name,
         root=args.root,
     )
