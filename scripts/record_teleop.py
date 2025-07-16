@@ -193,8 +193,10 @@ class TeleoperationRecorder:
         # Initialize joint controller if requested
 
         if controller_type == "keyboard":
+            print("Using keyboard controller")
             self.joint_controller = KeyJointController(DEFAULT_JOINT_DELTAS)
         elif controller_type == "gamepad":
+            print("Using gamepad controller")
             self.joint_controller = GamepadJointController()
             if not self.joint_controller.start():
                 print(

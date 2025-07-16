@@ -354,7 +354,7 @@ def continue_with_sac_training(
 
 
 def evaluate_model(
-    bc_trainer, env, n_episodes=5, eval_video_path="../outputs/bc_eval_video.mp4"
+    bc_trainer, env, n_episodes=5, eval_video_path="outputs/bc_eval_video.mp4"
 ):
     """
     Evaluate the trained BC model.
@@ -407,7 +407,7 @@ def evaluate_model(
 
 
 def evaluate_sac_model(
-    sac_model, env, n_episodes=5, eval_video_path="../outputs/sac_eval_video.mp4"
+    sac_model, env, n_episodes=5, eval_video_path="outputs/sac_eval_video.mp4"
 ):
     """Evaluate SAC model"""
     print(f"Evaluating SAC model over {n_episodes} episodes...")

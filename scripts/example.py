@@ -26,4 +26,4 @@ for _ in range(1000):
         observation, info = env.reset()
 
 env.close()
-imageio.mimsave("../outputs/example.mp4", np.stack(frames), fps=25)
+imageio.mimsave("outputs/example.mp4", np.stack(frames), fps=25)

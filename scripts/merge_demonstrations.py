@@ -1,3 +1,9 @@
+"""
+Example usage:
+
+python scripts/merge_demonstrations.py -o demonstrations/merged_big.pkl  demonstrations/expert_demonstrations_big2.pkl demonstrations/expert_demonstrations_big3_so_so.pkl demonstrations/expert_demonstrations_big4.pkl
+"""
+
 import os
 import pickle
 import argparse

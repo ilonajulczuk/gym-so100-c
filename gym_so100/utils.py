@@ -16,7 +16,7 @@ def sample_box_pose(seed=None):
 
 
 def sample_so100_box_pose(seed=None):
-    x_range = [-0.3, -0.1]
+    x_range = [-0.25, -0.15]
     y_range = [0.3, 0.6]
     z_range = [0.05, 0.05]
 
