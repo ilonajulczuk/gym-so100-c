@@ -46,9 +46,12 @@ def load_demonstrations(filename):
 
 
 def convert_demos_to_dataset(
-    demonstrations_file: str, user_id: str, repo_id: str, env_name: str, **kwargs
+    demonstrations_file: str, user_id: str, repo_id: str, env_name: str, task: str = None, **kwargs
 ):
     """Convert expert demonstrations to LeRobot dataset"""
+
+    if task is None:
+        task = env_name
 
     dataset_dir = kwargs["root"] + "/" + user_id + "/" + env_name
 
@@ -197,7 +200,7 @@ def convert_demos_to_dataset(
                 "seed": np.array([0], dtype=np.int64),
             }
 
-            dataset.add_frame(data_frame, task=env_name)
+            dataset.add_frame(data_frame, task=task)
             episode_reward_sum += reward
 
 
@@ -231,6 +234,9 @@ if __name__ == "__main__":
         "--user-id", type=str, default="test_user", help="User ID for the dataset"
     )
     parser.add_argument(
+        "--task", type=str, default="Put red cube in the bin", help="Prompt for the task"
+    )
+    parser.add_argument(
         "--repo-id", type=str, default="myrepo", help="Repo ID for the dataset"
     )
     parser.add_argument(
@@ -256,4 +262,5 @@ if __name__ == "__main__":
         repo_id=args.repo_id,
         env_name=args.env_name,
         root=args.root,
+        task=args.task,
     )

@@ -10,9 +10,10 @@ import torch
 import argparse
 from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
 from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.policies.pi0fast.modeling_pi0fast import PI0FASTPolicy
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 
-
-def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_name):
+def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_name, prompt):
     # Create a directory to store the video of the evaluation
     video_output_dir.mkdir(parents=True, exist_ok=True)
     # Select your device
@@ -21,6 +22,17 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
         policy = ACTPolicy.from_pretrained(policy_path)
     elif policy_type == "diffusion":
         policy = DiffusionPolicy.from_pretrained(policy_path)
+    elif policy_type == "pi0fast":
+        policy = PI0FASTPolicy.from_pretrained(policy_path)
+    elif policy_type == "smolVLA":
+        policy = SmolVLAPolicy.from_pretrained(policy_path)
+
+    print("Policy loaded from:", policy_path)
+
+    torch.set_default_dtype(torch.float32)
+
+    policy.eval()
+    policy.to(device)
 
     env = gym.make(
         task,
@@ -51,9 +63,13 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
     # Render frame of the initial state
     frames.append(env.render())
 
+    best_reward = 0
+    total_rewards = []
+
     for num_episode in range(num_episodes):
         print(f"Starting episode {num_episode + 1}")
         step = 0
+        total_reward = 0
         done = False
         env.reset()
         while not done:
@@ -80,7 +96,11 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
                 "observation.state": state,
                 "observation.images.top": image,
             }
-
+            if policy_type == "pi0fast":
+                observation["observation.images.main"] = image
+                observation["task"] = [prompt]
+            elif policy_type == "smolVLA":
+                observation["task"] = prompt
             # Predict the next action with respect to the current observation
             with torch.inference_mode():
                 action = policy.select_action(observation)
@@ -98,6 +118,10 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
             rewards.append(reward)
             frames.append(env.render())
 
+            total_reward += reward
+            if total_reward > best_reward:
+                best_reward = total_reward
+
             # The rollout is considered done when the success state is reached (i.e. terminated is True),
             # or the maximum number of iterations is reached (i.e. truncated is True)
             done = terminated | truncated | done
@@ -107,6 +131,8 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
             print("Success!")
         else:
             print("Failure!")
+        total_rewards.append(total_reward)
+        print(f"Episode {num_episode + 1} finished with total reward: {total_reward}")
 
     # Get the speed of environment (i.e. its number of frames per second).
     fps = env.metadata["render_fps"]
@@ -114,7 +140,8 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
     # Encode all frames into a mp4 video.
     video_path = video_output_dir / video_name
     imageio.mimsave(str(video_path), numpy.stack(frames), fps=fps)
-
+    print(f"Best reward in {num_episodes} episodes: {best_reward}")
+    print(f"Average reward in {num_episodes} episodes: {numpy.mean(total_rewards)}")
     print(f"Video of the evaluation is available in '{video_path}'.")
 
 
@@ -153,6 +180,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--prompt",
+        type=str,
+        default="Pick up the red cube and put it in the bin",
+        help="Prompt for the task (default: 'Pick up the red cube and put it in the bin')",
+    )
+
+    parser.add_argument(
         "--num_episodes",
         type=int,
         default=3,
@@ -175,4 +209,5 @@ if __name__ == "__main__":
         policy_path=args.policy_path,
         video_name=args.video_name,
         task=args.task,
+        prompt=args.prompt,
     )
