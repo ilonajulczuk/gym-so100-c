@@ -13,7 +13,7 @@ from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.pi0fast.modeling_pi0fast import PI0FASTPolicy
 from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 
-def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_name, prompt):
+def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_name, prompt, normalize, robot_type):
     # Create a directory to store the video of the evaluation
     video_output_dir.mkdir(parents=True, exist_ok=True)
     # Select your device
@@ -101,12 +101,16 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
                 observation["task"] = [prompt]
             elif policy_type == "smolVLA":
                 observation["task"] = prompt
+            if robot_type:
+                observation["robot_type"] = robot_type
             # Predict the next action with respect to the current observation
             with torch.inference_mode():
                 action = policy.select_action(observation)
 
             # Prepare the action for the environment
             numpy_action = action.squeeze(0).to("cpu").numpy()
+            if normalize:
+                numpy_action = gym_so100.constants.normalize_lerobot_to_gym_so100(numpy_action.copy())
 
             # Step through the environment and receive a new observation
             numpy_observation, reward, terminated, truncated, info = env.step(
@@ -173,6 +177,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--robot_type",
+        type=str,
+        default=None,
+        help="Type of robot to use (default: None)",
+    )
+    parser.add_argument(
         "--video_name",
         type=str,
         default="rollout.mp4",
@@ -194,6 +204,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--normalize",
+        type=bool,
+        default=False,
+        help="Whether to normalize actions (default: False)",
+    )
+
+    parser.add_argument(
         "--task",
         type=str,
         default="gym_so100/SO100CubeToBin-v0",
@@ -210,4 +227,6 @@ if __name__ == "__main__":
         video_name=args.video_name,
         task=args.task,
         prompt=args.prompt,
+        normalize=args.normalize,
+        robot_type=args.robot_type,
     )

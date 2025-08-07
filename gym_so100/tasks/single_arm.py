@@ -24,7 +24,6 @@ Observation space: {"qpos": Concat[ left_arm_qpos (5),         # absolute joint 
 """
 
 
-
 class SO100Task(base.Task):
     ARM_DOF = 5
     GRIPPER_DOF = 2  # Dunno why 2 ???
