@@ -164,20 +164,10 @@ def evaluate(model, num_episodes=10, deterministic=True, frames=None, task=None)
     if frames is None:
         frames = []
 
-    # eval_env = gym.make(
-    #     "gym_so100/SO100TouchCube-v0",
-    #     obs_type="so100_pixels_agent_pos",
-    #     observation_width=64,
-    #     observation_height=48,
-    # )
-
     eval_env = make_vec_env(
         create_single_env, n_envs=1, vec_env_cls=DummyVecEnv, env_kwargs={"task": task}
     )
     eval_env = VecTransposeImage(eval_env)
-    # eval_env = Monitor(eval_env)
-    # eval_env = DummyVecEnv([lambda: eval_env])
-    # eval_env = VecTransposeImage(eval_env)
 
     # Apply VecNormalize with training stats
     train_env = model.get_env()
@@ -275,7 +265,6 @@ def create_environment_old():
 
     # 1) vectorise
     vec_env = SubprocVecEnv([make_env for _ in range(6)])
-    # vec_env = DummyVecEnv([lambda: env], create_env=False)  # for SB3 ≥ 2.4
     # 2) move channel first for ALL dict image keys
     vec_env = VecTransposeImage(vec_env)
 
@@ -336,11 +325,11 @@ def create_model(vec_env, log_dir):
     model = SAC(
         policy="MultiInputPolicy",
         env=vec_env,
-        learning_rate=1e-4,  # Keep your current rate
-        buffer_size=2_000,  # Increase this (big stability gain)
-        batch_size=256,  # Increase this (stability)
+        learning_rate=1e-4,
+        buffer_size=50_000,
+        batch_size=256,
         ent_coef="auto",
-        target_entropy=-2.0,  # Fix entropy (stop the chaos)
+        target_entropy=-2.0,
         device=device,
         tensorboard_log=log_dir,
     )

@@ -20,7 +20,7 @@ from gym_so100.tasks.single_arm import (
     SO100TouchCubeSparseTask,
 )
 
-from gym_so100.utils import fixed_so100_box_pose, sample_so100_box_pose
+from gym_so100.utils import sample_so100_box_pose
 
 
 class SO100Env(gym.Env):

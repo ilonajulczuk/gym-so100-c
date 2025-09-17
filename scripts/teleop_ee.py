@@ -107,7 +107,6 @@ def key_callback_data(key, data):
 
 
 def main():
-    # Load the mujoco model basic.xml
     xml_path = ASSETS_DIR / "so100_transfer_cube_ee.xml"
     model = mujoco.MjModel.from_xml_path(str(xml_path))
     data = mujoco.MjData(model)
