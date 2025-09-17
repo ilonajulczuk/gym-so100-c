@@ -74,7 +74,10 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
         env.reset()
         while not done:
             # Prepare observation for the policy running in Pytorch
-            state = torch.from_numpy(numpy_observation["agent_pos"])
+            agent_pos = numpy_observation["agent_pos"]
+            if normalize:
+                agent_pos = gym_so100.constants.normalize_gym_so100_to_lerobot(agent_pos.copy())
+            state = torch.from_numpy(agent_pos)
             image = torch.from_numpy(numpy_observation["pixels"])
 
             # Convert to float32 with image from channel first in [0,255]
@@ -82,6 +85,7 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
             state = state.to(torch.float32)
             image = image.to(torch.float32) / 255
             image = image.permute(2, 0, 1)
+
 
             # Send data tensors from CPU to GPU
             state = state.to(device, non_blocking=True)
@@ -91,7 +95,7 @@ def main(video_output_dir, policy_type, policy_path, num_episodes, task, video_n
             state = state.unsqueeze(0)
             image = image.unsqueeze(0)
 
-            # Create the policy input dictionary
+            # Create the policy input dictionary            
             observation = {
                 "observation.state": state,
                 "observation.images.top": image,

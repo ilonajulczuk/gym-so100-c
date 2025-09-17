@@ -56,6 +56,17 @@ def normalize_so100(action):
     action[5] = normalize(action[5], -0.174, 1.75)  # gripper position
     return action
 
+
+def normalize_gym_so100_to_lerobot(action):
+    """Normalize the action from SO100 to LeRobot"""
+    action[0] = normalize(action[0], -1.92, 1.92, -100, 100)  # rotation around the waist
+    action[1] = normalize(action[1], -3.32, 0.174, -100, 100)
+    action[2] = normalize(action[2], -0.174, 3.14, -100, 100)  # elbow
+    action[3] = normalize(action[3], -1.66, 1.66, -100, 100)  # wrist pitch
+    action[4] = normalize(action[4], -2.79, 2.79, -100, 100)  # wrist roll
+    action[5] = normalize(action[5], -0.174, 1.75, 0, 100)  # gripper position
+    return action
+
 def normalize(num, min_val, max_val, target_min=-1, target_max=1):
     """Scale action from [min_val, max_val] to [-1, 1]"""
     if min_val == max_val:
